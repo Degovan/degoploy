@@ -1,5 +1,6 @@
 # Development config used by `make dev-api`. The API binds to loopback only;
 # browsers reach it through the Vite dev server proxy on 0.0.0.0:5173.
+# base_url is left empty so the UI works from any address that reaches this machine:
+# webhook URLs and allowed WebSocket origins follow the browser's address.
 listen: "127.0.0.1:8090"
 data_dir: ./data
-base_url: http://170.80.9.6:5173
