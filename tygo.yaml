@@ -12,6 +12,7 @@ packages:
       export type TriggerEvent = 'push' | 'tag';
       export type AuditDetail = Record<string, unknown>;
       export type DeployTrigger = 'webhook' | 'manual' | 'redeploy';
+      export type DeliveryStatus = 'pong' | 'queued' | 'skipped' | 'ignored' | 'rejected';
       export type DeployStatus = 'queued' | 'running' | 'success' | 'failed' | 'canceled' | 'timeout' | 'skipped';
       export type Action =
         | 'project.view'

@@ -22,6 +22,7 @@ import (
 func (a *API) registerDeployments(mux *http.ServeMux) {
 	h := func(fn http.HandlerFunc) http.Handler { return auth.RequireAuth(fn) }
 
+	mux.Handle("GET /api/v1/deployments", h(a.recentDeployments))
 	mux.Handle("GET /api/v1/projects/{id}/deployments", h(a.listDeployments))
 	mux.Handle("POST /api/v1/projects/{id}/deployments", h(a.manualDeploy))
 	mux.Handle("GET /api/v1/deployments/{did}", h(a.getDeployment))
@@ -55,6 +56,28 @@ func (a *API) listDeployments(w http.ResponseWriter, r *http.Request) {
 	out := make([]Deployment, 0, len(deps))
 	for _, d := range deps {
 		out = append(out, toDeployment(d))
+	}
+	httpx.JSON(w, http.StatusOK, out)
+}
+
+// recentDeployments lists the newest deployments of all projects the user can view.
+func (a *API) recentDeployments(w http.ResponseWriter, r *http.Request) {
+	ident := auth.FromContext(r.Context())
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 100 {
+		limit = 10
+	}
+	// ?status=active lists only queued and running deployments.
+	deps, err := a.store.RecentDeployments(r.Context(), limit, r.URL.Query().Get("status") == "active")
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	out := make([]Deployment, 0, len(deps))
+	for _, d := range deps {
+		if a.authz.Can(r.Context(), ident.User, auth.ActionProjectView, d.ProjectID) {
+			out = append(out, toDeployment(d))
+		}
 	}
 	httpx.JSON(w, http.StatusOK, out)
 }
@@ -226,19 +249,22 @@ func (a *API) writeDeployment(w http.ResponseWriter, r *http.Request, id int64, 
 }
 
 func toDeployment(v *store.DeploymentView) Deployment {
-	out := Deployment{
+	return Deployment{
 		ID: v.ID, ProjectID: v.ProjectID, RuleID: v.RuleID, RuleName: v.RuleName, Trigger: v.Trigger,
 		TriggeredBy: v.TriggeredByName, Ref: v.Ref, CommitSHA: v.CommitSHA, CommitMessage: v.CommitMessage,
-		Author: v.Author, Status: v.Status, ExitCode: v.ExitCode,
-		QueuedAt: v.QueuedAt.UTC().Format(time.RFC3339),
+		Author: v.Author, Status: v.Status, ExitCode: v.ExitCode, Error: v.Error, AutoPull: v.AutoPull,
+		QueuedAt: msTime(v.QueuedAt), StartedAt: msTimePtr(v.StartedAt),
+		ScriptStartedAt: msTimePtr(v.ScriptStartedAt), FinishedAt: msTimePtr(v.FinishedAt),
 	}
-	if v.StartedAt != nil {
-		s := v.StartedAt.UTC().Format(time.RFC3339)
-		out.StartedAt = &s
+}
+
+// msTime formats with milliseconds: stage durations are often well under a second.
+func msTime(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05.000Z07:00") }
+
+func msTimePtr(t *time.Time) *string {
+	if t == nil {
+		return nil
 	}
-	if v.FinishedAt != nil {
-		s := v.FinishedAt.UTC().Format(time.RFC3339)
-		out.FinishedAt = &s
-	}
-	return out
+	s := msTime(*t)
+	return &s
 }

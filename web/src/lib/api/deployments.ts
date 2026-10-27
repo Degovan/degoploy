@@ -4,12 +4,17 @@ import type { Deployment } from './types.gen.js';
 
 export const deploymentKeys = {
 	list: (projectId: number) => ['projects', projectId, 'deployments'] as const,
+	recent: ['deployments', 'recent'] as const,
+	active: ['deployments', 'recent', 'active'] as const,
 	detail: (id: number) => ['deployments', id] as const
 };
 
 export const deploymentsApi = {
 	list: (projectId: number, limit = 20) =>
 		api.get<Deployment[]>(`/projects/${projectId}/deployments?limit=${limit}`),
+	recent: (limit = 10) => api.get<Deployment[]>(`/deployments?limit=${limit}`),
+	/** Queued and running deployments of all projects. */
+	active: () => api.get<Deployment[]>('/deployments?status=active&limit=100'),
 	get: (id: number) => api.get<Deployment>(`/deployments/${id}`),
 	deploy: (projectId: number, ref: string) =>
 		api.post<Deployment>(`/projects/${projectId}/deployments`, { ref }),

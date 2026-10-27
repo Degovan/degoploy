@@ -63,12 +63,14 @@
 		<ProjectForm
 			initial={projectToForm(p)}
 			mode="edit"
+			title="Project settings"
+			description="Repository, working directory and how the deploy script runs."
 			submitLabel="Save changes"
 			onsubmit={save}
 		/>
 	{/key}
 
-	<Card.Root class="max-w-2xl border-destructive/40">
+	<Card.Root class="border-destructive/40">
 		<Card.Header>
 			<Card.Title>Delete project</Card.Title>
 			<Card.Description>

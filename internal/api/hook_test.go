@@ -138,6 +138,9 @@ func TestWebhookFlow(t *testing.T) {
 	}
 	queued := 0
 	for _, e := range events {
+		if e.Matched != (e.Status == "queued") {
+			t.Fatalf("matched %v with status %q", e.Matched, e.Status)
+		}
 		if e.Matched {
 			queued++
 			if e.DeploymentID == nil {
@@ -145,7 +148,7 @@ func TestWebhookFlow(t *testing.T) {
 			}
 		}
 	}
-	if queued != 2 || events[len(events)-1].Ref != "refs/heads/main" || events[0].Reason != "project is disabled" {
+	if queued != 2 || events[len(events)-1].Ref != "refs/heads/main" || events[0].Reason != "project is disabled" || events[0].Status != "skipped" {
 		t.Fatalf("events = %+v", events)
 	}
 }

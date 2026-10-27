@@ -52,7 +52,7 @@ func (a *API) hook(w http.ResponseWriter, r *http.Request) {
 		if len(res.Reason) > 1000 {
 			res.Reason = res.Reason[:997] + "..."
 		}
-		ev.Reason = res.Reason
+		ev.Status, ev.Reason = res.Status, res.Reason
 		if err := a.store.InsertWebhookEvent(r.Context(), ev); err != nil {
 			httpx.InternalError(w, r, err)
 			return

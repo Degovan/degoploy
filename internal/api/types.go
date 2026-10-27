@@ -58,6 +58,14 @@ type Project struct {
 	UpdatedAt    string `json:"updated_at"`
 	// LastDeployment is the newest deployment, if any.
 	LastDeployment *Deployment `json:"last_deployment" tstype:"Deployment | null,required"`
+	// Health covers the last finished deployments; null when there are none.
+	Health *ProjectHealth `json:"health" tstype:"ProjectHealth | null,required"`
+}
+
+// ProjectHealth: Passed of the last Total successful or failed deployments succeeded.
+type ProjectHealth struct {
+	Passed int `json:"passed"`
+	Total  int `json:"total"`
 }
 
 type CreateProjectRequest struct {
@@ -172,27 +180,36 @@ type WebhookEvent struct {
 	Ref          string `json:"ref"`
 	CommitSHA    string `json:"commit_sha"`
 	Matched      bool   `json:"matched"`
+	Status       string `json:"status" tstype:"DeliveryStatus"` // HookResponse.Status that was sent back
 	Reason       string `json:"reason"`
 	DeploymentID *int64 `json:"deployment_id" tstype:"number | null,required"`
 	ReceivedAt   string `json:"received_at"`
 }
 
 type Deployment struct {
-	ID            int64   `json:"id"`
-	ProjectID     int64   `json:"project_id"`
-	RuleID        *int64  `json:"rule_id" tstype:"number | null,required"`
-	RuleName      string  `json:"rule_name"`
-	Trigger       string  `json:"trigger" tstype:"DeployTrigger"`
-	TriggeredBy   string  `json:"triggered_by"` // username for manual deploys
-	Ref           string  `json:"ref"`
-	CommitSHA     string  `json:"commit_sha"`
-	CommitMessage string  `json:"commit_message"`
-	Author        string  `json:"author"`
-	Status        string  `json:"status" tstype:"DeployStatus"`
-	ExitCode      *int    `json:"exit_code" tstype:"number | null,required"`
-	QueuedAt      string  `json:"queued_at"`
-	StartedAt     *string `json:"started_at" tstype:"string | null,required"`
-	FinishedAt    *string `json:"finished_at" tstype:"string | null,required"`
+	ID            int64  `json:"id"`
+	ProjectID     int64  `json:"project_id"`
+	RuleID        *int64 `json:"rule_id" tstype:"number | null,required"`
+	RuleName      string `json:"rule_name"`
+	Trigger       string `json:"trigger" tstype:"DeployTrigger"`
+	TriggeredBy   string `json:"triggered_by"` // username for manual deploys
+	Ref           string `json:"ref"`
+	CommitSHA     string `json:"commit_sha"`
+	CommitMessage string `json:"commit_message"`
+	Author        string `json:"author"`
+	Status        string `json:"status" tstype:"DeployStatus"`
+	ExitCode      *int   `json:"exit_code" tstype:"number | null,required"`
+	// Timestamps have millisecond precision. Stages: queued_at → started_at (trigger),
+	// started_at → script_started_at (repository update), script_started_at → finished_at (script).
+	QueuedAt        string  `json:"queued_at"`
+	StartedAt       *string `json:"started_at" tstype:"string | null,required"`
+	ScriptStartedAt *string `json:"script_started_at" tstype:"string | null,required"`
+	FinishedAt      *string `json:"finished_at" tstype:"string | null,required"`
+	// Error is a one-line reason for a failed, timed-out or canceled deployment.
+	Error string `json:"error"`
+	// AutoPull: whether the run updated the repository before the script; null until
+	// it starts, and for deployments recorded before degoploy kept it.
+	AutoPull *bool `json:"auto_pull" tstype:"boolean | null,required"`
 }
 
 // DeployRequest starts a manual deployment. Ref is a branch name or a full ref

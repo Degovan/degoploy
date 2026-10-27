@@ -185,7 +185,7 @@ func (a *API) listWebhookEvents(w http.ResponseWriter, r *http.Request) {
 	for _, e := range events {
 		out = append(out, WebhookEvent{
 			ID: e.ID, Provider: e.Provider, Event: e.Event, DeliveryID: e.DeliveryID, Ref: e.Ref,
-			CommitSHA: e.CommitSHA, Matched: e.Matched, Reason: e.Reason, DeploymentID: e.DeploymentID,
+			CommitSHA: e.CommitSHA, Matched: e.Matched, Status: e.Status, Reason: e.Reason, DeploymentID: e.DeploymentID,
 			ReceivedAt: e.ReceivedAt.UTC().Format(time.RFC3339),
 		})
 	}

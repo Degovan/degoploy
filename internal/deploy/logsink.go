@@ -2,8 +2,11 @@ package deploy
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"sync"
 
 	"github.com/degovan/degoploy/internal/realtime"
@@ -90,3 +93,42 @@ const (
 	ansiYellow = "\x1b[1;33m"
 	ansiCyan   = "\x1b[1;36m"
 )
+
+// maxLineLen bounds the remembered line; longer lines are cut.
+const maxLineLen = 300
+
+// lastLine passes output through to w and remembers the last non-empty line
+// (without ANSI escapes), to summarize why a command failed.
+// Like exec's output copying it is used from one goroutine at a time.
+type lastLine struct {
+	w    io.Writer
+	cur  []byte
+	last string
+}
+
+func (l *lastLine) Write(p []byte) (int, error) {
+	for _, b := range p {
+		if b == '\n' || b == '\r' {
+			l.endLine()
+		} else if len(l.cur) < 4*maxLineLen {
+			l.cur = append(l.cur, b)
+		}
+	}
+	return l.w.Write(p)
+}
+
+func (l *lastLine) endLine() {
+	line := strings.TrimSpace(ansiEscape.ReplaceAllString(string(l.cur), ""))
+	if line != "" {
+		l.last = truncate(strings.ToValidUTF8(line, "�"), maxLineLen)
+	}
+	l.cur = l.cur[:0]
+}
+
+// Last returns the last complete or partial line written.
+func (l *lastLine) Last() string {
+	l.endLine()
+	return l.last
+}
+
+var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[@-_]`)

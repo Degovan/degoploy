@@ -121,102 +121,104 @@
 
 <PageHeader title="Audit log" description="Who did what, and when. Newest first." />
 
-<div class="flex flex-wrap gap-2">
-	<Select.Root type="single" bind:value={category}>
-		<Select.Trigger class="w-44" aria-label="Activity type">{categoryLabel}</Select.Trigger>
-		<Select.Content>
-			{#each categories as c (c.value)}
-				<Select.Item value={c.value} label={c.label}>{c.label}</Select.Item>
-			{/each}
-		</Select.Content>
-	</Select.Root>
-	<Select.Root type="single" bind:value={userFilter}>
-		<Select.Trigger class="w-44" aria-label="User">{userLabel}</Select.Trigger>
-		<Select.Content>
-			<Select.Item value="" label="Everyone">Everyone</Select.Item>
-			{#each users.data ?? [] as u (u.id)}
-				<Select.Item value={String(u.id)} label={u.username}>{u.username}</Select.Item>
-			{/each}
-		</Select.Content>
-	</Select.Root>
-</div>
-
-{#if audit.isPending}
-	<Skeleton class="h-64 w-full rounded-xl" />
-{:else if audit.isError}
-	<Alert.Root variant="destructive">
-		<CircleAlertIcon />
-		<Alert.Title>{audit.error.message}</Alert.Title>
-	</Alert.Root>
-{:else}
-	<Card.Root class="py-0">
-		<Table.Root>
-			<Table.Header>
-				<Table.Row>
-					<Table.Head class="w-40 pl-6">When</Table.Head>
-					<Table.Head class="w-32">Who</Table.Head>
-					<Table.Head>What</Table.Head>
-					<Table.Head class="w-32 pr-6">IP</Table.Head>
-				</Table.Row>
-			</Table.Header>
-			<Table.Body>
-				{#each entries as e (e.id)}
-					{@const t = target(e)}
-					{@const lines = details(e)}
-					<Table.Row data-testid="audit-row">
-						<Table.Cell class="pl-6 align-top text-muted-foreground">
-							<time datetime={e.created_at} title={formatDateTime(e.created_at)}
-								>{timeAgo(e.created_at)}</time
-							>
-						</Table.Cell>
-						<Table.Cell class="align-top"
-							>{e.username || (e.user_id ? '(deleted)' : '–')}</Table.Cell
-						>
-						<Table.Cell class="align-top whitespace-normal">
-							<div class="flex flex-wrap items-center gap-2">
-								<Badge variant={tone(e.action)}>{actionLabels[e.action] ?? e.action}</Badge>
-								{#if t?.href}
-									<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- resolved in target() -->
-									<a href={t.href} class="font-mono text-xs underline-offset-4 hover:underline"
-										>{t.label}</a
-									>
-								{:else if t}
-									<span class="font-mono text-xs">{t.label}</span>
-								{/if}
-							</div>
-							{#if lines.length}
-								<ul
-									class="mt-1 flex flex-col gap-0.5 font-mono text-xs break-all text-muted-foreground"
-								>
-									{#each lines as line, i (i)}<li>{line}</li>{/each}
-								</ul>
-							{/if}
-						</Table.Cell>
-						<Table.Cell class="pr-6 align-top font-mono text-xs text-muted-foreground"
-							>{e.ip || '–'}</Table.Cell
-						>
-					</Table.Row>
-				{:else}
-					<Table.Row>
-						<Table.Cell colspan={4} class="py-10 text-center text-muted-foreground">
-							No matching activity.
-						</Table.Cell>
-					</Table.Row>
+<div class="container-page flex flex-col gap-6 py-8">
+	<div class="flex flex-wrap gap-2">
+		<Select.Root type="single" bind:value={category}>
+			<Select.Trigger class="w-44" aria-label="Activity type">{categoryLabel}</Select.Trigger>
+			<Select.Content>
+				{#each categories as c (c.value)}
+					<Select.Item value={c.value} label={c.label}>{c.label}</Select.Item>
 				{/each}
-			</Table.Body>
-		</Table.Root>
-	</Card.Root>
+			</Select.Content>
+		</Select.Root>
+		<Select.Root type="single" bind:value={userFilter}>
+			<Select.Trigger class="w-44" aria-label="User">{userLabel}</Select.Trigger>
+			<Select.Content>
+				<Select.Item value="" label="Everyone">Everyone</Select.Item>
+				{#each users.data ?? [] as u (u.id)}
+					<Select.Item value={String(u.id)} label={u.username}>{u.username}</Select.Item>
+				{/each}
+			</Select.Content>
+		</Select.Root>
+	</div>
 
-	{#if audit.hasNextPage}
-		<div class="flex justify-center">
-			<Button
-				variant="outline"
-				onclick={() => audit.fetchNextPage()}
-				disabled={audit.isFetchingNextPage}
-			>
-				{#if audit.isFetchingNextPage}<LoaderIcon class="animate-spin" />{/if}
-				Load more
-			</Button>
-		</div>
+	{#if audit.isPending}
+		<Skeleton class="h-64 w-full rounded-xl" />
+	{:else if audit.isError}
+		<Alert.Root variant="destructive">
+			<CircleAlertIcon />
+			<Alert.Title>{audit.error.message}</Alert.Title>
+		</Alert.Root>
+	{:else}
+		<Card.Root class="py-0">
+			<Table.Root>
+				<Table.Header>
+					<Table.Row>
+						<Table.Head class="w-40 pl-6">When</Table.Head>
+						<Table.Head class="w-32">Who</Table.Head>
+						<Table.Head>What</Table.Head>
+						<Table.Head class="w-32 pr-6">IP</Table.Head>
+					</Table.Row>
+				</Table.Header>
+				<Table.Body>
+					{#each entries as e (e.id)}
+						{@const t = target(e)}
+						{@const lines = details(e)}
+						<Table.Row data-testid="audit-row">
+							<Table.Cell class="pl-6 align-top text-muted-foreground">
+								<time datetime={e.created_at} title={formatDateTime(e.created_at)}
+									>{timeAgo(e.created_at)}</time
+								>
+							</Table.Cell>
+							<Table.Cell class="align-top"
+								>{e.username || (e.user_id ? '(deleted)' : '–')}</Table.Cell
+							>
+							<Table.Cell class="align-top whitespace-normal">
+								<div class="flex flex-wrap items-center gap-2">
+									<Badge variant={tone(e.action)}>{actionLabels[e.action] ?? e.action}</Badge>
+									{#if t?.href}
+										<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- resolved in target() -->
+										<a href={t.href} class="font-mono text-xs underline-offset-4 hover:underline"
+											>{t.label}</a
+										>
+									{:else if t}
+										<span class="font-mono text-xs">{t.label}</span>
+									{/if}
+								</div>
+								{#if lines.length}
+									<ul
+										class="mt-1 flex flex-col gap-0.5 font-mono text-xs break-all text-muted-foreground"
+									>
+										{#each lines as line, i (i)}<li>{line}</li>{/each}
+									</ul>
+								{/if}
+							</Table.Cell>
+							<Table.Cell class="pr-6 align-top font-mono text-xs text-muted-foreground"
+								>{e.ip || '–'}</Table.Cell
+							>
+						</Table.Row>
+					{:else}
+						<Table.Row>
+							<Table.Cell colspan={4} class="py-10 text-center text-muted-foreground">
+								No matching activity.
+							</Table.Cell>
+						</Table.Row>
+					{/each}
+				</Table.Body>
+			</Table.Root>
+		</Card.Root>
+
+		{#if audit.hasNextPage}
+			<div class="flex justify-center">
+				<Button
+					variant="outline"
+					onclick={() => audit.fetchNextPage()}
+					disabled={audit.isFetchingNextPage}
+				>
+					{#if audit.isFetchingNextPage}<LoaderIcon class="animate-spin" />{/if}
+					Load more
+				</Button>
+			</div>
+		{/if}
 	{/if}
-{/if}
+</div>

@@ -2,7 +2,8 @@
 	import './layout.css';
 	import favicon from '#lib/assets/favicon.svg';
 	import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
-	import { ModeWatcher } from 'mode-watcher';
+	import { onMount } from 'svelte';
+	import { ModeWatcher, setMode } from 'mode-watcher';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
@@ -12,6 +13,19 @@
 	import type { LayoutProps } from './$types';
 
 	let { children }: LayoutProps = $props();
+
+	// Dark is the default look. ModeWatcher's defaultMode needs its head script (blocked
+	// by our CSP) and it stores "system" on load, so apply dark once per browser here;
+	// a theme picked later in the user menu is kept.
+	onMount(() => {
+		try {
+			if (localStorage.getItem('degoploy.theme-default')) return;
+			localStorage.setItem('degoploy.theme-default', 'dark');
+			setMode('dark');
+		} catch {
+			// Storage unavailable: the system preference applies.
+		}
+	});
 
 	const queryClient = new QueryClient({
 		defaultOptions: {
@@ -39,7 +53,7 @@
 </svelte:head>
 
 <!-- Head script injection is disabled: it would be an inline script blocked by our CSP. -->
-<ModeWatcher disableHeadScriptInjection />
+<ModeWatcher defaultMode="dark" disableHeadScriptInjection />
 <Toaster richColors position="top-right" />
 
 <QueryClientProvider client={queryClient}>

@@ -177,6 +177,12 @@ cat app.txt`, 0)
 	if d.CommitSHA != sha {
 		t.Fatalf("commit = %s, want %s", d.CommitSHA, sha)
 	}
+	if d.AutoPull == nil || !*d.AutoPull {
+		t.Fatalf("auto_pull = %v, want true", d.AutoPull)
+	}
+	if d.ScriptStartedAt == nil || d.ScriptStartedAt.Before(*d.StartedAt) || d.FinishedAt.Before(*d.ScriptStartedAt) || d.Error != "" {
+		t.Fatalf("stages: started %v script %v finished %v error %q", d.StartedAt, d.ScriptStartedAt, d.FinishedAt, d.Error)
+	}
 	got, _ := os.ReadFile(filepath.Join(p.WorkDir, "deployed.txt"))
 	want := "branch=main commit=" + sha + " env=production rule=prod secret=none\n"
 	if string(got) != want {
@@ -196,10 +202,18 @@ cat app.txt`, 0)
 
 func TestDeployFailureAndTimeout(t *testing.T) {
 	f := newFixture(t)
-	failing := f.project("failing", "echo boom >&2\nexit 3", 0)
+	failing := f.project("failing", "printf '\\033[31mboom\\033[0m\\n\\n' >&2\nexit 3", 0)
+	missing := f.project("missing", "no-such-command-xyz", 0)
 	d := f.wait(f.enqueue(failing, nil).ID, store.DeploySuccess, store.DeployFailed)
 	if d.Status != store.DeployFailed || d.ExitCode == nil || *d.ExitCode != 3 {
 		t.Fatalf("failing: %s %v", d.Status, d.ExitCode)
+	}
+	if d.Error != "boom" {
+		t.Fatalf("error = %q, want the script's last output line", d.Error)
+	}
+	m := f.wait(f.enqueue(missing, nil).ID, store.DeploySuccess, store.DeployFailed)
+	if want := "deploy.sh: line 1: no-such-command-xyz: command not found"; m.Error != want || *m.ExitCode != 127 {
+		t.Fatalf("error = %q (exit %v), want %q", m.Error, m.ExitCode, want)
 	}
 	if log := readLog(t, d); !strings.Contains(log, "boom") || !strings.Contains(log, "exited with code 3") {
 		t.Fatalf("log:\n%s", log)
@@ -208,8 +222,8 @@ func TestDeployFailureAndTimeout(t *testing.T) {
 	slow := f.project("slow", "sleep 30 &\nwait", 1)
 	start := time.Now()
 	d = f.wait(f.enqueue(slow, nil).ID, store.DeployTimeout, store.DeploySuccess, store.DeployFailed)
-	if d.Status != store.DeployTimeout {
-		t.Fatalf("slow: %s\n%s", d.Status, readLog(t, d))
+	if d.Status != store.DeployTimeout || !strings.HasPrefix(d.Error, "timed out after") {
+		t.Fatalf("slow: %s %q\n%s", d.Status, d.Error, readLog(t, d))
 	}
 	if took := time.Since(start); took > 8*time.Second {
 		t.Fatalf("timeout took %s; the process group was not killed promptly", took)
@@ -253,6 +267,9 @@ func TestRefusesNonGitWorkDir(t *testing.T) {
 	d := f.wait(f.enqueue(p, nil).ID, store.DeployFailed, store.DeploySuccess)
 	if d.Status != store.DeployFailed || !strings.Contains(readLog(t, d), "refusing to clone") {
 		t.Fatalf("status %s\n%s", d.Status, readLog(t, d))
+	}
+	if !strings.Contains(d.Error, "refusing to clone") || d.ScriptStartedAt != nil {
+		t.Fatalf("error %q script started %v", d.Error, d.ScriptStartedAt)
 	}
 	if b, _ := os.ReadFile(filepath.Join(p.WorkDir, "important.txt")); string(b) != "keep me" {
 		t.Fatal("existing files must be left alone")

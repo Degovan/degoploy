@@ -36,18 +36,25 @@ type Deployment struct {
 	LogPath       string
 	QueuedAt      time.Time
 	StartedAt     *time.Time
-	FinishedAt    *time.Time
+	// ScriptStartedAt ends the repository update stage and starts the script stage.
+	ScriptStartedAt *time.Time
+	FinishedAt      *time.Time
+	// Error summarizes why a deployment did not succeed (last output line or cause).
+	Error string
+	// AutoPull records whether the run updated the repository; nil before it starts.
+	AutoPull *bool
 }
 
 const deploymentCols = `id, project_id, rule_id, trigger, triggered_by, ref, commit_sha, commit_message,
-	author, status, exit_code, log_path, queued_at, started_at, finished_at`
+	author, status, exit_code, log_path, queued_at, started_at, script_started_at, finished_at, error, auto_pull`
 
 func scanDeployment(row interface{ Scan(...any) error }) (*Deployment, error) {
 	var d Deployment
 	var rule, by, exit sql.NullInt64
-	var started, finished sql.NullTime
+	var started, scriptStarted, finished sql.NullTime
+	var autoPull sql.NullBool
 	err := row.Scan(&d.ID, &d.ProjectID, &rule, &d.Trigger, &by, &d.Ref, &d.CommitSHA, &d.CommitMessage,
-		&d.Author, &d.Status, &exit, &d.LogPath, &d.QueuedAt, &started, &finished)
+		&d.Author, &d.Status, &exit, &d.LogPath, &d.QueuedAt, &started, &scriptStarted, &finished, &d.Error, &autoPull)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -67,8 +74,14 @@ func scanDeployment(row interface{ Scan(...any) error }) (*Deployment, error) {
 	if started.Valid {
 		d.StartedAt = &started.Time
 	}
+	if scriptStarted.Valid {
+		d.ScriptStartedAt = &scriptStarted.Time
+	}
 	if finished.Valid {
 		d.FinishedAt = &finished.Time
+	}
+	if autoPull.Valid {
+		d.AutoPull = &autoPull.Bool
 	}
 	return &d, nil
 }
@@ -102,8 +115,8 @@ type DeploymentView struct {
 }
 
 const deploymentViewCols = `d.id, d.project_id, d.rule_id, d.trigger, d.triggered_by, d.ref, d.commit_sha,
-	d.commit_message, d.author, d.status, d.exit_code, d.log_path, d.queued_at, d.started_at, d.finished_at,
-	COALESCE(r.name, ''), COALESCE(u.username, '')`
+	d.commit_message, d.author, d.status, d.exit_code, d.log_path, d.queued_at, d.started_at, d.script_started_at,
+	d.finished_at, d.error, d.auto_pull, COALESCE(r.name, ''), COALESCE(u.username, '')`
 
 const deploymentViewFrom = ` FROM deployments d
 	LEFT JOIN trigger_rules r ON r.id = d.rule_id
@@ -112,9 +125,11 @@ const deploymentViewFrom = ` FROM deployments d
 func scanDeploymentView(row interface{ Scan(...any) error }) (*DeploymentView, error) {
 	var v DeploymentView
 	var rule, by, exit sql.NullInt64
-	var started, finished sql.NullTime
+	var started, scriptStarted, finished sql.NullTime
+	var autoPull sql.NullBool
 	err := row.Scan(&v.ID, &v.ProjectID, &rule, &v.Trigger, &by, &v.Ref, &v.CommitSHA, &v.CommitMessage,
-		&v.Author, &v.Status, &exit, &v.LogPath, &v.QueuedAt, &started, &finished, &v.RuleName, &v.TriggeredByName)
+		&v.Author, &v.Status, &exit, &v.LogPath, &v.QueuedAt, &started, &scriptStarted, &finished, &v.Error,
+		&autoPull, &v.RuleName, &v.TriggeredByName)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -134,8 +149,14 @@ func scanDeploymentView(row interface{ Scan(...any) error }) (*DeploymentView, e
 	if started.Valid {
 		v.StartedAt = &started.Time
 	}
+	if scriptStarted.Valid {
+		v.ScriptStartedAt = &scriptStarted.Time
+	}
 	if finished.Valid {
 		v.FinishedAt = &finished.Time
+	}
+	if autoPull.Valid {
+		v.AutoPull = &autoPull.Bool
 	}
 	return &v, nil
 }
@@ -185,11 +206,63 @@ func (s *Store) LatestDeployments(ctx context.Context) (map[int64]*DeploymentVie
 	return out, rows.Err()
 }
 
-// StartDeployment moves a queued deployment to running. It reports false if the
-// deployment was no longer queued (e.g. canceled meanwhile).
-func (s *Store) StartDeployment(ctx context.Context, id int64, logPath string) (bool, error) {
-	res, err := s.db.ExecContext(ctx, `UPDATE deployments SET status = ?, log_path = ?, started_at = ?
-		WHERE id = ? AND status = ?`, DeployRunning, logPath, now(), id, DeployQueued)
+// RecentDeployments returns the newest deployments across all projects; with
+// activeOnly, only queued and running ones.
+func (s *Store) RecentDeployments(ctx context.Context, limit int, activeOnly bool) ([]*DeploymentView, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+deploymentViewCols+deploymentViewFrom+`
+		WHERE (? = 0 OR d.status IN (?, ?)) ORDER BY d.id DESC LIMIT ?`, activeOnly, DeployQueued, DeployRunning, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []*DeploymentView{}
+	for rows.Next() {
+		v, err := scanDeploymentView(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// Health counts how many of a project's last window finished deployments
+// succeeded. Skipped and canceled runs say nothing about health and are ignored.
+type Health struct {
+	Passed int
+	Total  int
+}
+
+// DeploymentHealth returns the health of every project with finished
+// deployments, or of one project when projectID is not 0.
+func (s *Store) DeploymentHealth(ctx context.Context, projectID int64, window int) (map[int64]Health, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT project_id, SUM(status = ?), COUNT(*) FROM (
+			SELECT project_id, status, ROW_NUMBER() OVER (PARTITION BY project_id ORDER BY id DESC) AS n
+			FROM deployments WHERE status IN (?, ?, ?) AND (? = 0 OR project_id = ?)
+		) WHERE n <= ? GROUP BY project_id`,
+		DeploySuccess, DeploySuccess, DeployFailed, DeployTimeout, projectID, projectID, window)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]Health{}
+	for rows.Next() {
+		var id int64
+		var h Health
+		if err := rows.Scan(&id, &h.Passed, &h.Total); err != nil {
+			return nil, err
+		}
+		out[id] = h
+	}
+	return out, rows.Err()
+}
+
+// StartDeployment moves a queued deployment to running, recording whether it will
+// update the repository first. It reports false if the deployment was no longer
+// queued (e.g. canceled meanwhile).
+func (s *Store) StartDeployment(ctx context.Context, id int64, logPath string, autoPull bool) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE deployments SET status = ?, log_path = ?, started_at = ?, auto_pull = ?
+		WHERE id = ? AND status = ?`, DeployRunning, logPath, now(), autoPull, id, DeployQueued)
 	if err != nil {
 		return false, err
 	}
@@ -197,10 +270,18 @@ func (s *Store) StartDeployment(ctx context.Context, id int64, logPath string) (
 	return n == 1, nil
 }
 
-// FinishDeployment records the outcome of a running deployment.
-func (s *Store) FinishDeployment(ctx context.Context, id int64, status string, exitCode *int) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE deployments SET status = ?, exit_code = ?, finished_at = ?
-		WHERE id = ? AND status = ?`, status, exitCode, now(), id, DeployRunning)
+// MarkScriptStarted records that the repository is ready and the deploy script is starting.
+func (s *Store) MarkScriptStarted(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE deployments SET script_started_at = ?
+		WHERE id = ? AND status = ?`, now(), id, DeployRunning)
+	return err
+}
+
+// FinishDeployment records the outcome of a running deployment; errLine is
+// empty on success.
+func (s *Store) FinishDeployment(ctx context.Context, id int64, status string, exitCode *int, errLine string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE deployments SET status = ?, exit_code = ?, finished_at = ?, error = ?
+		WHERE id = ? AND status = ?`, status, exitCode, now(), errLine, id, DeployRunning)
 	return err
 }
 
@@ -226,8 +307,8 @@ func (s *Store) SetDeploymentCommit(ctx context.Context, id int64, sha, message,
 // RecoverDeployments runs at startup: deployments that were running when the
 // process died are failed; still-queued ones are returned (oldest first) to resubmit.
 func (s *Store) RecoverDeployments(ctx context.Context) (failed int64, queued []*Deployment, err error) {
-	res, err := s.db.ExecContext(ctx, `UPDATE deployments SET status = ?, finished_at = ? WHERE status = ?`,
-		DeployFailed, now(), DeployRunning)
+	res, err := s.db.ExecContext(ctx, `UPDATE deployments SET status = ?, finished_at = ?, error = ? WHERE status = ?`,
+		DeployFailed, now(), "interrupted: degoploy stopped while this deployment was running", DeployRunning)
 	if err != nil {
 		return 0, nil, err
 	}

@@ -87,6 +87,11 @@ func (a *API) listProjects(w http.ResponseWriter, r *http.Request) {
 		httpx.InternalError(w, r, err)
 		return
 	}
+	health, err := a.store.DeploymentHealth(r.Context(), 0, healthWindow)
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
 	out := []Project{}
 	for _, p := range projects {
 		if a.authz.Can(r.Context(), ident.User, auth.ActionProjectView, p.ID) {
@@ -95,6 +100,7 @@ func (a *API) listProjects(w http.ResponseWriter, r *http.Request) {
 				dd := toDeployment(d)
 				dto.LastDeployment = &dd
 			}
+			dto.Health = toHealth(health, p.ID)
 			out = append(out, dto)
 		}
 	}
@@ -129,7 +135,25 @@ func (a *API) getProject(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	httpx.JSON(w, http.StatusOK, toProject(p))
+	dto := toProject(p)
+	health, err := a.store.DeploymentHealth(r.Context(), p.ID, healthWindow)
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	dto.Health = toHealth(health, p.ID)
+	httpx.JSON(w, http.StatusOK, dto)
+}
+
+// healthWindow is how many recent finished deployments a project's health covers.
+const healthWindow = 10
+
+func toHealth(m map[int64]store.Health, projectID int64) *ProjectHealth {
+	h, ok := m[projectID]
+	if !ok || h.Total == 0 {
+		return nil
+	}
+	return &ProjectHealth{Passed: h.Passed, Total: h.Total}
 }
 
 func (a *API) updateProject(w http.ResponseWriter, r *http.Request) {

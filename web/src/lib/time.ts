@@ -44,3 +44,29 @@ export function deploymentDuration(
 	const end = d.finished_at ? new Date(d.finished_at).getTime() : now;
 	return end - new Date(d.started_at).getTime();
 }
+
+/** Compact relative time: "just now", "14m ago", "2h ago", "1d ago", "3w ago". */
+export function shortAgo(iso: string, now = Date.now()): string {
+	const s = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000));
+	if (s < 45) return 'just now';
+	const steps: [number, string][] = [
+		[60, 'm'],
+		[3600, 'h'],
+		[86400, 'd'],
+		[7 * 86400, 'w'],
+		[30 * 86400, 'mo'],
+		[365 * 86400, 'y']
+	];
+	let label = '1m';
+	for (const [size, unit] of steps) {
+		if (s >= size) label = `${Math.floor(s / size)}${unit}`;
+	}
+	return `${label} ago`;
+}
+
+/** Stage duration: "12ms", "2.9s", "37s", "1m 12s". */
+export function formatStage(ms: number): string {
+	if (ms < 1000) return `${Math.max(0, Math.round(ms))}ms`;
+	if (ms < 10_000) return `${(Math.floor(ms / 100) / 10).toFixed(1)}s`;
+	return formatDuration(ms);
+}

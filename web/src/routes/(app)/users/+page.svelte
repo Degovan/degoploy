@@ -90,123 +90,125 @@
 	{/snippet}
 </PageHeader>
 
-{#if users.isPending}
-	<Skeleton class="h-64 w-full rounded-xl" />
-{:else if users.isError}
-	<Alert.Root variant="destructive">
-		<CircleAlertIcon />
-		<Alert.Title>{users.error.message}</Alert.Title>
-	</Alert.Root>
-{:else}
-	<Card.Root class="py-0">
-		<Table.Root>
-			<Table.Header>
-				<Table.Row>
-					<Table.Head class="pl-6">User</Table.Head>
-					<Table.Head>Role</Table.Head>
-					<Table.Head>Sign-in</Table.Head>
-					<Table.Head>Status</Table.Head>
-					<Table.Head>Last login</Table.Head>
-					<Table.Head class="pr-6 text-right"><span class="sr-only">Actions</span></Table.Head>
-				</Table.Row>
-			</Table.Header>
-			<Table.Body>
-				{#each users.data as u (u.id)}
-					{@const self = u.id === session.user?.id}
-					<Table.Row data-testid={`user-${u.username}`}>
-						<Table.Cell class="pl-6">
-							<div class="flex items-center gap-3">
-								<Avatar.Root class="size-8">
-									<Avatar.Fallback>{initials(u)}</Avatar.Fallback>
-								</Avatar.Root>
-								<div class="flex flex-col">
-									<span class="flex items-center gap-2 font-medium">
-										{u.display_name || u.username}
-										{#if self}<Badge variant="secondary">You</Badge>{/if}
-									</span>
-									<span class="text-xs text-muted-foreground">
-										@{u.username}{u.email ? ` · ${u.email}` : ''}
-									</span>
+<div class="container-page flex flex-col gap-6 py-8">
+	{#if users.isPending}
+		<Skeleton class="h-64 w-full rounded-xl" />
+	{:else if users.isError}
+		<Alert.Root variant="destructive">
+			<CircleAlertIcon />
+			<Alert.Title>{users.error.message}</Alert.Title>
+		</Alert.Root>
+	{:else}
+		<Card.Root class="py-0">
+			<Table.Root>
+				<Table.Header>
+					<Table.Row>
+						<Table.Head class="pl-6">User</Table.Head>
+						<Table.Head>Role</Table.Head>
+						<Table.Head>Sign-in</Table.Head>
+						<Table.Head>Status</Table.Head>
+						<Table.Head>Last login</Table.Head>
+						<Table.Head class="pr-6 text-right"><span class="sr-only">Actions</span></Table.Head>
+					</Table.Row>
+				</Table.Header>
+				<Table.Body>
+					{#each users.data as u (u.id)}
+						{@const self = u.id === session.user?.id}
+						<Table.Row data-testid={`user-${u.username}`}>
+							<Table.Cell class="pl-6">
+								<div class="flex items-center gap-3">
+									<Avatar.Root class="size-8">
+										<Avatar.Fallback>{initials(u)}</Avatar.Fallback>
+									</Avatar.Root>
+									<div class="flex flex-col">
+										<span class="flex items-center gap-2 font-medium">
+											{u.display_name || u.username}
+											{#if self}<Badge variant="secondary">You</Badge>{/if}
+										</span>
+										<span class="text-xs text-muted-foreground">
+											@{u.username}{u.email ? ` · ${u.email}` : ''}
+										</span>
+									</div>
 								</div>
-							</div>
-						</Table.Cell>
-						<Table.Cell><Badge variant="outline">{roleLabel(u.role)}</Badge></Table.Cell>
-						<Table.Cell class="text-muted-foreground">
-							{u.auth_provider === 'oidc' ? 'SSO' : 'Password'}
-						</Table.Cell>
-						<Table.Cell>
-							{#if u.disabled}
-								<Badge variant="secondary">Disabled</Badge>
-							{:else}
-								<span class="text-sm text-emerald-700 dark:text-emerald-400">Active</span>
-							{/if}
-						</Table.Cell>
-						<Table.Cell class="text-muted-foreground">
-							{#if u.last_login_at}
-								<time datetime={u.last_login_at} title={formatDateTime(u.last_login_at)}
-									>{timeAgo(u.last_login_at)}</time
-								>
-							{:else}
-								Never
-							{/if}
-						</Table.Cell>
-						<Table.Cell class="pr-6">
-							<div class="flex justify-end gap-1">
-								<Button
-									variant="ghost"
-									size="icon-sm"
-									aria-label={`Edit ${u.username}`}
-									onclick={() => {
-										editing = u;
-										dialogOpen = true;
-									}}><PencilIcon /></Button
-								>
-								{#if u.auth_provider === 'local'}
+							</Table.Cell>
+							<Table.Cell><Badge variant="outline">{roleLabel(u.role)}</Badge></Table.Cell>
+							<Table.Cell class="text-muted-foreground">
+								{u.auth_provider === 'oidc' ? 'SSO' : 'Password'}
+							</Table.Cell>
+							<Table.Cell>
+								{#if u.disabled}
+									<Badge variant="secondary">Disabled</Badge>
+								{:else}
+									<span class="text-sm text-emerald-700 dark:text-emerald-400">Active</span>
+								{/if}
+							</Table.Cell>
+							<Table.Cell class="text-muted-foreground">
+								{#if u.last_login_at}
+									<time datetime={u.last_login_at} title={formatDateTime(u.last_login_at)}
+										>{timeAgo(u.last_login_at)}</time
+									>
+								{:else}
+									Never
+								{/if}
+							</Table.Cell>
+							<Table.Cell class="pr-6">
+								<div class="flex justify-end gap-1">
 									<Button
 										variant="ghost"
 										size="icon-sm"
-										aria-label={`Reset password for ${u.username}`}
+										aria-label={`Edit ${u.username}`}
 										onclick={() => {
-											pwUser = u;
-											pwOpen = true;
-										}}><KeyRoundIcon /></Button
+											editing = u;
+											dialogOpen = true;
+										}}><PencilIcon /></Button
 									>
-								{/if}
-								{#if !self}
-									<ConfirmButton
-										variant="ghost"
-										size="icon-sm"
-										label={`Delete ${u.username}`}
-										title={`Delete ${u.username}?`}
-										description="Their sessions end immediately. Audit entries and deployments they triggered are kept without the user link."
-										confirmLabel="Delete user"
-										destructive
-										onconfirm={() => remove(u)}
-									>
-										<Trash2Icon />
-									</ConfirmButton>
-								{/if}
-							</div>
-						</Table.Cell>
-					</Table.Row>
-				{/each}
-			</Table.Body>
-		</Table.Root>
-	</Card.Root>
-{/if}
+									{#if u.auth_provider === 'local'}
+										<Button
+											variant="ghost"
+											size="icon-sm"
+											aria-label={`Reset password for ${u.username}`}
+											onclick={() => {
+												pwUser = u;
+												pwOpen = true;
+											}}><KeyRoundIcon /></Button
+										>
+									{/if}
+									{#if !self}
+										<ConfirmButton
+											variant="ghost"
+											size="icon-sm"
+											label={`Delete ${u.username}`}
+											title={`Delete ${u.username}?`}
+											description="Their sessions end immediately. Audit entries and deployments they triggered are kept without the user link."
+											confirmLabel="Delete user"
+											destructive
+											onconfirm={() => remove(u)}
+										>
+											<Trash2Icon />
+										</ConfirmButton>
+									{/if}
+								</div>
+							</Table.Cell>
+						</Table.Row>
+					{/each}
+				</Table.Body>
+			</Table.Root>
+		</Card.Root>
+	{/if}
 
-<UserDialog
-	bind:open={dialogOpen}
-	user={editing}
-	isSelf={editing?.id === session.user?.id}
-	onsubmit={save}
-/>
+	<UserDialog
+		bind:open={dialogOpen}
+		user={editing}
+		isSelf={editing?.id === session.user?.id}
+		onsubmit={save}
+	/>
 
-<SetPasswordDialog
-	bind:open={pwOpen}
-	username={pwUser?.username}
-	onsubmit={async (_current, next) => {
-		await usersApi.setPassword(pwUser!.id, next);
-		toast.success(`Password set for ${pwUser!.username}`);
-	}}
-/>
+	<SetPasswordDialog
+		bind:open={pwOpen}
+		username={pwUser?.username}
+		onsubmit={async (_current, next) => {
+			await usersApi.setPassword(pwUser!.id, next);
+			toast.success(`Password set for ${pwUser!.username}`);
+		}}
+	/>
+</div>

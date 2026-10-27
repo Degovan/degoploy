@@ -2,6 +2,7 @@ package deploy
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -21,8 +22,9 @@ import (
 // killGrace is how long a canceled or timed-out process group gets after SIGTERM.
 const killGrace = 10 * time.Second
 
-// run performs the deployment and returns its final status.
-func (s *Service) run(ctx context.Context, d *store.Deployment, p *store.Project, w io.Writer) (string, *int) {
+// run performs the deployment and returns its final status and, unless it
+// succeeded, a one-line reason.
+func (s *Service) run(ctx context.Context, d *store.Deployment, p *store.Project, w io.Writer) (string, *int, string) {
 	start := time.Now()
 	ctx, cancel := context.WithTimeoutCause(ctx, time.Duration(p.TimeoutSec)*time.Second, errTimeout)
 	defer cancel()
@@ -50,48 +52,73 @@ func (s *Service) run(ctx context.Context, d *store.Deployment, p *store.Project
 	if err != nil {
 		return s.outcome(ctx, w, start, err)
 	}
+	if err := s.store.MarkScriptStarted(context.WithoutCancel(ctx), d.ID); err == nil {
+		s.notify(d.ID)
+	}
 	step(w, "Running %s", script)
 
 	cmd := exec.CommandContext(ctx, "bash", "--noprofile", "--norc", script)
 	cmd.Dir = p.WorkDir
 	cmd.Env = s.scriptEnv(d, p, rule)
 	setProcessGroup(cmd)
-	cmd.Stdout, cmd.Stderr = w, w
+	out := &lastLine{w: w}
+	cmd.Stdout, cmd.Stderr = out, out
 	err = cmd.Run()
 	if ctx.Err() != nil && cmd.Process != nil {
 		// Make sure nothing from a canceled/timed-out group survives.
 		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
+	if err != nil {
+		// bash prefixes errors with the script path; the file name is enough.
+		last := strings.ReplaceAll(out.Last(), script+":", filepath.Base(script)+":")
+		err = &scriptError{err: err, last: last}
+	}
 	return s.outcome(ctx, w, start, err)
 }
 
-// outcome maps an error (or nil) to a deployment status and writes the summary line.
-func (s *Service) outcome(ctx context.Context, w io.Writer, start time.Time, err error) (string, *int) {
+// scriptError is a failed deploy script or git command with the last line it printed.
+type scriptError struct {
+	err  error
+	git  bool
+	last string
+}
+
+func (e *scriptError) Error() string { return e.err.Error() }
+func (e *scriptError) Unwrap() error { return e.err }
+
+// outcome maps an error (or nil) to a deployment status, writes the summary
+// line and returns the error summary.
+func (s *Service) outcome(ctx context.Context, w io.Writer, start time.Time, err error) (string, *int, string) {
 	took := time.Since(start).Round(100 * time.Millisecond)
 	cause := context.Cause(ctx)
 	var exitErr *exec.ExitError
+	var cmdErr *scriptError
+	tail := ""
+	if errors.As(err, &cmdErr) {
+		tail = cmdErr.last
+	}
 	switch {
 	case err == nil:
 		code := 0
 		fmt.Fprintf(w, "\n%s✔ Deployment succeeded%s %sin %s%s\n", ansiGreen, ansiReset, ansiDim, took, ansiReset)
-		return "success", &code
+		return "success", &code, ""
 	case errors.Is(cause, errTimeout):
 		fmt.Fprintf(w, "\n%s✖ Timed out after %s%s\n", ansiRed, took, ansiReset)
-		return "timeout", nil
+		return "timeout", nil, fmt.Sprintf("timed out after %s", took)
 	case errors.Is(cause, errCanceledByUser), errors.Is(cause, errShutdown), errors.Is(cause, context.Canceled):
 		reason := errCanceledByUser.Error()
 		if errors.Is(cause, errShutdown) || errors.Is(cause, context.Canceled) {
 			reason = errShutdown.Error()
 		}
 		fmt.Fprintf(w, "\n%s■ Canceled: %s%s\n", ansiYellow, reason, ansiReset)
-		return "canceled", nil
-	case errors.As(err, &exitErr):
+		return "canceled", nil, reason
+	case cmdErr != nil && !cmdErr.git && errors.As(err, &exitErr):
 		code := exitErr.ExitCode()
 		fmt.Fprintf(w, "\n%s✖ Script exited with code %d%s %safter %s%s\n", ansiRed, code, ansiReset, ansiDim, took, ansiReset)
-		return "failed", &code
+		return "failed", &code, cmp.Or(tail, fmt.Sprintf("script exited with code %d", code))
 	default:
 		fmt.Fprintf(w, "\n%s✖ %s%s\n", ansiRed, err, ansiReset)
-		return "failed", nil
+		return "failed", nil, cmp.Or(tail, err.Error())
 	}
 }
 
@@ -106,9 +133,13 @@ func (s *Service) pull(ctx context.Context, d *store.Deployment, p *store.Projec
 		cmd := exec.CommandContext(ctx, "git", args...)
 		cmd.Dir = p.WorkDir
 		cmd.Env = env
-		cmd.Stdout, cmd.Stderr = w, w
+		out := &lastLine{w: w}
+		cmd.Stdout, cmd.Stderr = out, out
 		setProcessGroup(cmd)
-		return cmd.Run()
+		if err := cmd.Run(); err != nil {
+			return &scriptError{err: err, git: true, last: out.Last()}
+		}
+		return nil
 	}
 
 	step(w, "Updating repository in %s", p.WorkDir)

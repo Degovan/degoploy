@@ -5,6 +5,7 @@ export type ScriptSource = 'managed' | 'repo';
 export type TriggerEvent = 'push' | 'tag';
 export type AuditDetail = Record<string, unknown>;
 export type DeployTrigger = 'webhook' | 'manual' | 'redeploy';
+export type DeliveryStatus = 'pong' | 'queued' | 'skipped' | 'ignored' | 'rejected';
 export type DeployStatus =
 	'queued' | 'running' | 'success' | 'failed' | 'canceled' | 'timeout' | 'skipped';
 export type Action =
@@ -72,6 +73,17 @@ export interface Project {
 	 * LastDeployment is the newest deployment, if any.
 	 */
 	last_deployment: Deployment | null;
+	/**
+	 * Health covers the last finished deployments; null when there are none.
+	 */
+	health: ProjectHealth | null;
+}
+/**
+ * ProjectHealth: Passed of the last Total successful or failed deployments succeeded.
+ */
+export interface ProjectHealth {
+	passed: number /* int */;
+	total: number /* int */;
 }
 export interface CreateProjectRequest {
 	name: string;
@@ -180,6 +192,7 @@ export interface WebhookEvent {
 	ref: string;
 	commit_sha: string;
 	matched: boolean;
+	status: DeliveryStatus; // HookResponse.Status that was sent back
 	reason: string;
 	deployment_id: number | null;
 	received_at: string;
@@ -197,9 +210,23 @@ export interface Deployment {
 	author: string;
 	status: DeployStatus;
 	exit_code: number | null;
+	/**
+	 * Timestamps have millisecond precision. Stages: queued_at → started_at (trigger),
+	 * started_at → script_started_at (repository update), script_started_at → finished_at (script).
+	 */
 	queued_at: string;
 	started_at: string | null;
+	script_started_at: string | null;
 	finished_at: string | null;
+	/**
+	 * Error is a one-line reason for a failed, timed-out or canceled deployment.
+	 */
+	error: string;
+	/**
+	 * AutoPull: whether the run updated the repository before the script; null until
+	 * it starts, and for deployments recorded before degoploy kept it.
+	 */
+	auto_pull: boolean | null;
 }
 /**
  * DeployRequest starts a manual deployment. Ref is a branch name or a full ref

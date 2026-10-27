@@ -8,14 +8,16 @@ import (
 
 // WebhookEvent records one webhook delivery and what degoploy did with it.
 type WebhookEvent struct {
-	ID           int64
-	ProjectID    int64
-	Provider     string
-	Event        string
-	DeliveryID   string
-	Ref          string
-	CommitSHA    string
-	Matched      bool
+	ID         int64
+	ProjectID  int64
+	Provider   string
+	Event      string
+	DeliveryID string
+	Ref        string
+	CommitSHA  string
+	Matched    bool
+	// Status is what degoploy answered: pong, queued, skipped, ignored or rejected.
+	Status       string
 	Reason       string
 	DeploymentID *int64
 	ReceivedAt   time.Time
@@ -28,9 +30,10 @@ func (s *Store) InsertWebhookEvent(ctx context.Context, e *WebhookEvent) error {
 	e.ReceivedAt = now()
 	return s.tx(ctx, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx, `INSERT INTO webhook_events
-			(project_id, provider, event, delivery_id, ref, commit_sha, matched, reason, deployment_id, received_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			e.ProjectID, e.Provider, e.Event, e.DeliveryID, e.Ref, e.CommitSHA, e.Matched, e.Reason, e.DeploymentID, e.ReceivedAt)
+			(project_id, provider, event, delivery_id, ref, commit_sha, matched, status, reason, deployment_id, received_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			e.ProjectID, e.Provider, e.Event, e.DeliveryID, e.Ref, e.CommitSHA, e.Matched, e.Status, e.Reason,
+			e.DeploymentID, e.ReceivedAt)
 		if err != nil {
 			return err
 		}
@@ -46,7 +49,7 @@ func (s *Store) InsertWebhookEvent(ctx context.Context, e *WebhookEvent) error {
 
 func (s *Store) ListWebhookEvents(ctx context.Context, projectID int64, limit int) ([]*WebhookEvent, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, project_id, provider, event, delivery_id, ref, commit_sha,
-		matched, reason, deployment_id, received_at
+		matched, status, reason, deployment_id, received_at
 		FROM webhook_events WHERE project_id = ? ORDER BY id DESC LIMIT ?`, projectID, limit)
 	if err != nil {
 		return nil, err
@@ -57,7 +60,7 @@ func (s *Store) ListWebhookEvents(ctx context.Context, projectID int64, limit in
 		var e WebhookEvent
 		var dep sql.NullInt64
 		if err := rows.Scan(&e.ID, &e.ProjectID, &e.Provider, &e.Event, &e.DeliveryID, &e.Ref, &e.CommitSHA,
-			&e.Matched, &e.Reason, &dep, &e.ReceivedAt); err != nil {
+			&e.Matched, &e.Status, &e.Reason, &dep, &e.ReceivedAt); err != nil {
 			return nil, err
 		}
 		if dep.Valid {

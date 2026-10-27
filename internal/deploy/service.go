@@ -260,11 +260,11 @@ func (s *Service) execute(id int64) {
 	sink, err := newLogSink(s.projects.LogDir(p), id, p.ID, s.hub)
 	if err != nil {
 		slog.Error("open deployment log", "id", id, "err", err)
-		s.store.StartDeployment(context.Background(), id, "")
-		s.finish(id, store.DeployFailed, nil)
+		s.store.StartDeployment(context.Background(), id, "", p.AutoPull)
+		s.finish(id, store.DeployFailed, nil, "could not open the deployment log")
 		return
 	}
-	started, err := s.store.StartDeployment(ctx, id, sink.path)
+	started, err := s.store.StartDeployment(ctx, id, sink.path, p.AutoPull)
 	if err != nil || !started {
 		sink.close()
 		os.Remove(sink.path)
@@ -272,9 +272,9 @@ func (s *Service) execute(id int64) {
 	}
 	s.notify(id)
 
-	status, exitCode := s.run(ctx, d, p, sink)
+	status, exitCode, errLine := s.run(ctx, d, p, sink)
 	sink.close()
-	s.finish(id, status, exitCode)
+	s.finish(id, status, exitCode, errLine)
 
 	if paths, err := s.store.PruneDeployments(context.Background(), p.ID, keepDeployments); err == nil {
 		for _, path := range paths {
@@ -283,8 +283,8 @@ func (s *Service) execute(id int64) {
 	}
 }
 
-func (s *Service) finish(id int64, status string, exitCode *int) {
-	if err := s.store.FinishDeployment(context.Background(), id, status, exitCode); err != nil {
+func (s *Service) finish(id int64, status string, exitCode *int, errLine string) {
+	if err := s.store.FinishDeployment(context.Background(), id, status, exitCode, errLine); err != nil {
 		slog.Error("finish deployment", "id", id, "err", err)
 	}
 	s.notify(id)
