@@ -1,0 +1,23 @@
+# Generates TypeScript types for the web UI: `make types`.
+packages:
+  - path: github.com/degovan/degoploy/internal/api
+    output_path: web/src/lib/api/types.gen.ts
+    include_files:
+      - types.go
+    # Keep these unions in sync with store.Role, auth.Action and the project validators.
+    frontmatter: |
+      export type Role = 'admin' | 'deployer' | 'viewer';
+      export type Provider = 'github' | 'gitea';
+      export type ScriptSource = 'managed' | 'repo';
+      export type TriggerEvent = 'push' | 'tag';
+      export type AuditDetail = Record<string, unknown>;
+      export type DeployTrigger = 'webhook' | 'manual' | 'redeploy';
+      export type DeployStatus = 'queued' | 'running' | 'success' | 'failed' | 'canceled' | 'timeout' | 'skipped';
+      export type Action =
+        | 'project.view'
+        | 'project.deploy'
+        | 'project.edit'
+        | 'project.secrets'
+        | 'project.create'
+        | 'user.manage'
+        | 'audit.view';

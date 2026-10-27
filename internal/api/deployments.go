@@ -1,0 +1,244 @@
+package api
+
+import (
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/degovan/degoploy/internal/audit"
+	"github.com/degovan/degoploy/internal/auth"
+	"github.com/degovan/degoploy/internal/deploy"
+	"github.com/degovan/degoploy/internal/httpx"
+	"github.com/degovan/degoploy/internal/realtime"
+	"github.com/degovan/degoploy/internal/store"
+	"github.com/degovan/degoploy/internal/trigger"
+)
+
+func (a *API) registerDeployments(mux *http.ServeMux) {
+	h := func(fn http.HandlerFunc) http.Handler { return auth.RequireAuth(fn) }
+
+	mux.Handle("GET /api/v1/projects/{id}/deployments", h(a.listDeployments))
+	mux.Handle("POST /api/v1/projects/{id}/deployments", h(a.manualDeploy))
+	mux.Handle("GET /api/v1/deployments/{did}", h(a.getDeployment))
+	mux.Handle("GET /api/v1/deployments/{did}/log", h(a.deploymentLog))
+	mux.Handle("POST /api/v1/deployments/{did}/cancel", h(a.cancelDeployment))
+	mux.Handle("POST /api/v1/deployments/{did}/redeploy", h(a.redeploy))
+}
+
+// publishDeployment pushes a deployment change to realtime subscribers.
+func (a *API) publishDeployment(v *store.DeploymentView) {
+	a.hub.Publish(realtime.Message{
+		Topic: realtime.TopicEvents, Type: realtime.TypeDeploymentUpdated, ProjectID: v.ProjectID, Data: toDeployment(v),
+	})
+}
+
+func (a *API) listDeployments(w http.ResponseWriter, r *http.Request) {
+	p, _, ok := a.loadProject(w, r, auth.ActionProjectView)
+	if !ok {
+		return
+	}
+	before, _ := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 100 {
+		limit = 30
+	}
+	deps, err := a.store.ListDeployments(r.Context(), p.ID, before, limit)
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	out := make([]Deployment, 0, len(deps))
+	for _, d := range deps {
+		out = append(out, toDeployment(d))
+	}
+	httpx.JSON(w, http.StatusOK, out)
+}
+
+var refNameRe = regexp.MustCompile(`^refs/(heads|tags)/[^\s~^:?*\[\\]+$`)
+
+func (a *API) manualDeploy(w http.ResponseWriter, r *http.Request) {
+	p, ident, ok := a.loadProject(w, r, auth.ActionProjectDeploy)
+	if !ok {
+		return
+	}
+	var req DeployRequest
+	if !httpx.DecodeJSON(w, r, &req) {
+		return
+	}
+	ref := strings.TrimSpace(req.Ref)
+	if ref != "" && !strings.HasPrefix(ref, "refs/") {
+		ref = "refs/heads/" + ref
+	}
+	if !refNameRe.MatchString(ref) || strings.Contains(ref, "..") || strings.HasSuffix(ref, "/") || strings.HasSuffix(ref, ".lock") {
+		httpx.JSON(w, http.StatusUnprocessableEntity, httpx.ErrorBody{
+			Error: "use a branch name or refs/heads/…, refs/tags/…", Code: "validation", Field: "ref"})
+		return
+	}
+
+	// Apply the environment of the rule that would match this ref, if any.
+	rules, err := a.store.ListRules(r.Context(), p.ID)
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	kind, name := trigger.KindPush, strings.TrimPrefix(ref, "refs/heads/")
+	if strings.HasPrefix(ref, "refs/tags/") {
+		kind, name = trigger.KindTag, strings.TrimPrefix(ref, "refs/tags/")
+	}
+	rule, _ := trigger.Evaluate(rules, trigger.Push{Kind: kind, RefName: name})
+
+	d, err := a.deploys.Enqueue(r.Context(), deploy.Request{
+		Project: p, Rule: rule, Trigger: store.TriggerManual, TriggeredBy: ident.User.ID, Ref: ref,
+	})
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	a.recordProject(r, ident.User.ID, audit.DeploymentManual, p, map[string]any{"deployment": d.ID, "ref": ref})
+	a.writeDeployment(w, r, d.ID, http.StatusCreated)
+}
+
+// loadDeployment resolves {did} and checks action on its project.
+func (a *API) loadDeployment(w http.ResponseWriter, r *http.Request, action auth.Action) (*store.DeploymentView, *auth.Identity, bool) {
+	id, err := strconv.ParseInt(r.PathValue("did"), 10, 64)
+	if err != nil {
+		httpx.Error(w, http.StatusNotFound, "not_found", "deployment not found")
+		return nil, nil, false
+	}
+	d, err := a.store.DeploymentViewByID(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		httpx.Error(w, http.StatusNotFound, "not_found", "deployment not found")
+		return nil, nil, false
+	}
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return nil, nil, false
+	}
+	ident := auth.FromContext(r.Context())
+	if !a.authz.Can(r.Context(), ident.User, auth.ActionProjectView, d.ProjectID) {
+		httpx.Error(w, http.StatusNotFound, "not_found", "deployment not found")
+		return nil, nil, false
+	}
+	if !a.authz.Can(r.Context(), ident.User, action, d.ProjectID) {
+		httpx.Error(w, http.StatusForbidden, "forbidden", "you do not have permission for this action")
+		return nil, nil, false
+	}
+	return d, ident, true
+}
+
+func (a *API) getDeployment(w http.ResponseWriter, r *http.Request) {
+	d, _, ok := a.loadDeployment(w, r, auth.ActionProjectView)
+	if !ok {
+		return
+	}
+	httpx.JSON(w, http.StatusOK, toDeployment(d))
+}
+
+func (a *API) deploymentLog(w http.ResponseWriter, r *http.Request) {
+	d, _, ok := a.loadDeployment(w, r, auth.ActionProjectView)
+	if !ok {
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	if r.URL.Query().Has("download") {
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="deployment-%d.log"`, d.ID))
+	}
+	if d.LogPath == "" {
+		return
+	}
+	f, err := os.Open(d.LogPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	defer f.Close()
+	http.ServeContent(w, r, "", time.Time{}, f)
+}
+
+func (a *API) cancelDeployment(w http.ResponseWriter, r *http.Request) {
+	d, ident, ok := a.loadDeployment(w, r, auth.ActionProjectDeploy)
+	if !ok {
+		return
+	}
+	canceled, err := a.deploys.Cancel(r.Context(), d.ID)
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	if !canceled {
+		httpx.Error(w, http.StatusConflict, "finished", "deployment has already finished")
+		return
+	}
+	a.audit.Record(r.Context(), audit.Entry{
+		UserID: ident.User.ID, Action: audit.DeploymentCancel, TargetType: "deployment",
+		TargetID: strconv.FormatInt(d.ID, 10), IP: a.clientIP(r),
+	})
+	a.writeDeployment(w, r, d.ID, http.StatusOK)
+}
+
+func (a *API) redeploy(w http.ResponseWriter, r *http.Request) {
+	d, ident, ok := a.loadDeployment(w, r, auth.ActionProjectDeploy)
+	if !ok {
+		return
+	}
+	if d.Ref == "" {
+		httpx.Error(w, http.StatusConflict, "no_ref", "this deployment has no ref to redeploy")
+		return
+	}
+	p, err := a.store.ProjectByID(r.Context(), d.ProjectID)
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	req := deploy.Request{
+		Project: p, Trigger: store.TriggerRedeploy, TriggeredBy: ident.User.ID,
+		Ref: d.Ref, CommitSHA: d.CommitSHA, Message: d.CommitMessage, Author: d.Author,
+	}
+	if d.RuleID != nil {
+		if rule, err := a.store.RuleByID(r.Context(), p.ID, *d.RuleID); err == nil {
+			req.Rule = rule
+		}
+	}
+	nd, err := a.deploys.Enqueue(r.Context(), req)
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	a.recordProject(r, ident.User.ID, audit.DeploymentRedeploy, p, map[string]any{"deployment": nd.ID, "from": d.ID})
+	a.writeDeployment(w, r, nd.ID, http.StatusCreated)
+}
+
+func (a *API) writeDeployment(w http.ResponseWriter, r *http.Request, id int64, status int) {
+	v, err := a.store.DeploymentViewByID(r.Context(), id)
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	httpx.JSON(w, status, toDeployment(v))
+}
+
+func toDeployment(v *store.DeploymentView) Deployment {
+	out := Deployment{
+		ID: v.ID, ProjectID: v.ProjectID, RuleID: v.RuleID, RuleName: v.RuleName, Trigger: v.Trigger,
+		TriggeredBy: v.TriggeredByName, Ref: v.Ref, CommitSHA: v.CommitSHA, CommitMessage: v.CommitMessage,
+		Author: v.Author, Status: v.Status, ExitCode: v.ExitCode,
+		QueuedAt: v.QueuedAt.UTC().Format(time.RFC3339),
+	}
+	if v.StartedAt != nil {
+		s := v.StartedAt.UTC().Format(time.RFC3339)
+		out.StartedAt = &s
+	}
+	if v.FinishedAt != nil {
+		s := v.FinishedAt.UTC().Format(time.RFC3339)
+		out.FinishedAt = &s
+	}
+	return out
+}

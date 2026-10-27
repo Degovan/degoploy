@@ -1,0 +1,42 @@
+[Unit]
+Description=degoploy webhook deploy runner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=degoploy
+Group=degoploy
+ExecStart=/usr/local/bin/degoploy serve --config /etc/degoploy/degoploy.yaml
+# Secrets such as DEGOPLOY_OIDC_SECRET. degoploy never passes DEGOPLOY_* to deploy scripts.
+EnvironmentFile=-/etc/degoploy/degoploy.env
+WorkingDirectory=/var/lib/degoploy
+StateDirectory=degoploy
+StateDirectoryMode=0700
+UMask=0022
+
+Restart=on-failure
+RestartSec=5s
+# On stop, running deployments get 60s to finish before degoploy cancels them.
+# KillMode=mixed sends SIGTERM to degoploy only, so it can shut down cleanly;
+# whatever is left in the cgroup is killed when the timeout expires.
+KillMode=mixed
+TimeoutStopSec=90s
+LimitNOFILE=65536
+
+# Hardening that leaves deploy scripts working.
+PrivateTmp=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictRealtime=true
+LockPersonality=true
+
+# Stricter options. Enable only if your deploy scripts allow it:
+# NoNewPrivileges=true    breaks `sudo` in deploy scripts
+# ProtectSystem=full      makes /usr and /etc read-only for scripts
+# ProtectHome=true        hides /home (projects deployed there would fail)
+
+[Install]
+WantedBy=multi-user.target

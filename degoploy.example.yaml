@@ -1,0 +1,32 @@
+# Copy to degoploy.yaml and adjust. Every value can also be set via DEGOPLOY_* env vars,
+# and ${VAR} references are expanded from the environment.
+
+# Bind to loopback and put a reverse proxy (HTTPS) in front.
+listen: "127.0.0.1:8090"
+data_dir: /var/lib/degoploy
+# Public URL; https:// enables Secure cookies.
+base_url: https://deploy.example.com
+# Maximum deployments running at the same time across all projects.
+max_parallel: 2
+# Proxies whose X-Forwarded-For header is trusted.
+trusted_proxies: [127.0.0.1/32, "::1/128"]
+session_ttl: 168h
+# Username/password login. Keep at least one break-glass admin even with SSO.
+local_login: true
+
+oidc:
+  enabled: false
+  provider_name: Casdoor
+  issuer: https://sso.example.com
+  client_id: degoploy
+  client_secret: ${DEGOPLOY_OIDC_SECRET}
+  redirect_url: https://deploy.example.com/auth/oidc/callback
+  scopes: [openid, profile, email]
+  groups_claim: groups
+  # Casdoor groups come as "<organization>/<group>". "*" is the fallback for everyone else;
+  # remove it to reject users outside the listed groups.
+  role_mapping:
+    "my-org/degoploy-admins": admin
+    "my-org/devops": deployer
+    "*": viewer
+  sync_role_on_login: true
