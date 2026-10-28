@@ -31,7 +31,7 @@
 	<div class={cn('flex items-start gap-3', !p.enabled && 'opacity-50')}>
 		<ProjectAvatar seed={p.slug} muted={!p.enabled} class="mt-0.5 size-9" />
 		<div class="flex min-w-0 flex-1 flex-col">
-			<h3 class="truncate font-medium">
+			<h3 class="truncate text-sm font-semibold">
 				<!-- The link covers the whole card; the menu sits above it. -->
 				<a
 					href={resolve('/(app)/projects/[id]', { id })}
@@ -40,7 +40,7 @@
 					{p.name}
 				</a>
 			</h3>
-			<span class="truncate font-mono text-sm text-muted-foreground" title={p.work_dir}
+			<span class="truncate font-mono text-[13px] text-muted-foreground" title={p.work_dir}
 				>{p.work_dir}</span
 			>
 		</div>
@@ -99,14 +99,14 @@
 
 	<div class={cn('flex flex-wrap gap-2', !p.enabled && 'opacity-70')}>
 		<span
-			class="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full bg-muted px-3 text-sm"
+			class="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full bg-muted px-3 text-xs font-medium"
 		>
 			<ProviderIcon provider={p.provider} class="size-3.5 shrink-0 text-muted-foreground" />
 			<span class="truncate">{parseRepo(p.repo_url)?.path ?? p.repo_url}</span>
 		</span>
 		{#if !p.enabled}
 			<span
-				class="inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-sm text-muted-foreground"
+				class="inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-xs font-medium text-muted-foreground"
 			>
 				<PauseIcon class="size-3.5" />
 				Disabled
@@ -116,10 +116,12 @@
 
 	<div class={cn('mt-auto flex min-w-0 flex-col gap-1.5', !p.enabled && 'opacity-50')}>
 		{#if d}
-			<p class="truncate font-medium">{d.commit_message.split('\n')[0] || 'No commit message'}</p>
-			<div class="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
+			<p class="truncate text-sm font-medium">
+				{d.commit_message.split('\n')[0] || 'No commit message'}
+			</p>
+			<div class="flex min-w-0 items-center gap-1.5 text-[13px] text-muted-foreground">
 				<StatusDot status={d.status} class="shrink-0 text-foreground/80" />
-				<span class="shrink-0">#{d.id}</span>
+				<span class="shrink-0 font-mono">#{d.id}</span>
 				<span class="shrink-0" title={formatDateTime(d.queued_at)}
 					>· {shortAgo(d.queued_at, now)} on</span
 				>
@@ -127,8 +129,10 @@
 				<span class="truncate font-mono">{shortRef(d.ref)}</span>
 			</div>
 		{:else}
-			<p class="font-medium text-muted-foreground">Never deployed</p>
-			<p class="text-sm text-muted-foreground">Waiting for the first push or a manual deploy.</p>
+			<p class="text-sm font-medium text-muted-foreground">Never deployed</p>
+			<p class="text-[13px] text-muted-foreground">
+				Waiting for the first push or a manual deploy.
+			</p>
 		{/if}
 	</div>
 </article>

@@ -146,7 +146,7 @@
 
 		<div class="ml-auto flex shrink-0 items-center gap-3">
 			<span
-				class="hidden items-center gap-2 text-sm text-muted-foreground sm:flex"
+				class="hidden items-center gap-2 text-[13px] text-muted-foreground sm:flex"
 				title="Realtime connection"
 				data-testid="realtime-status"
 			>
@@ -156,7 +156,7 @@
 			<Button
 				variant="outline"
 				size="sm"
-				class="hidden sm:inline-flex"
+				class="hidden text-[13px] font-normal sm:inline-flex"
 				href={DOCS_URL}
 				target="_blank"
 				rel="noreferrer"

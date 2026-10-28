@@ -44,9 +44,9 @@
 </script>
 
 <section class="flex flex-col gap-4" aria-labelledby="recent-deployments">
-	<SectionHeading title="Recent deployments" id="recent-deployments">
+	<SectionHeading title="Recent deployments" id="recent-deployments" size="sm">
 		{#snippet actions()}
-			{#if active.data}<span class="text-sm text-muted-foreground">{queue}</span>{/if}
+			{#if active.data}<span class="text-[13px] text-muted-foreground">{queue}</span>{/if}
 		{/snippet}
 	</SectionHeading>
 
@@ -78,7 +78,7 @@
 						<span class="flex min-w-0 items-center gap-2.5">
 							<ProjectAvatar seed={p?.slug ?? String(d.project_id)} class="size-5" />
 							<span class="truncate font-medium">{p?.name ?? `Project ${d.project_id}`}</span>
-							<span class="shrink-0 text-muted-foreground">#{d.id}</span>
+							<span class="shrink-0 font-mono text-[13px] text-muted-foreground">#{d.id}</span>
 						</span>
 						<span
 							class="col-start-2 row-start-2 flex min-w-0 items-center gap-2 md:col-start-auto md:row-start-auto"
@@ -91,12 +91,12 @@
 								{#if d.commit_sha}<span aria-hidden="true">·</span>{d.commit_sha.slice(0, 7)}{/if}
 							</span>
 						</span>
-						<StatusDot status={d.status} class="hidden md:inline-flex" />
-						<span class="hidden text-right font-mono text-xs tabular-nums md:block">
+						<StatusDot status={d.status} class="hidden text-[13px] md:inline-flex" />
+						<span class="hidden text-right font-mono text-[13px] tabular-nums md:block">
 							{ms === null ? '' : formatDuration(ms)}
 						</span>
 						<time
-							class="col-start-3 row-start-1 text-right text-xs text-muted-foreground md:col-start-auto md:row-start-auto md:text-sm"
+							class="col-start-3 row-start-1 text-right text-xs text-muted-foreground md:col-start-auto md:row-start-auto md:text-[13px]"
 							datetime={d.queued_at}
 							title={formatDateTime(d.queued_at)}>{shortAgo(d.queued_at, now)}</time
 						>

@@ -103,7 +103,7 @@
 >
 	{#snippet aside()}
 		{#if projects.data?.length}
-			<div class="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-muted-foreground">
+			<div class="flex flex-wrap items-center gap-x-5 gap-y-1 text-[13px] text-muted-foreground">
 				<span class="flex items-center gap-2">
 					<span class="size-2 rounded-full bg-emerald-400"></span>{summary.healthy} healthy
 				</span>
@@ -159,7 +159,7 @@
 				{/each}
 			</div>
 			{#if session.can('project.create')}
-				<Button href={resolve('/(app)/projects/new')} class="h-11 px-4">
+				<Button href={resolve('/(app)/projects/new')} class="h-11 px-4 text-[13px]">
 					<PlusIcon />
 					New Project
 				</Button>
@@ -194,8 +194,10 @@
 						<span class="mb-2 flex size-10 items-center justify-center rounded-full border">
 							<PlusIcon class="size-4" />
 						</span>
-						<span class="font-medium">New Project</span>
-						<span class="text-sm text-muted-foreground">Connect a GitHub or Gitea repository</span>
+						<span class="text-sm font-medium">New Project</span>
+						<span class="text-[13px] text-muted-foreground"
+							>Connect a GitHub or Gitea repository</span
+						>
 					</a>
 				{/if}
 			</div>

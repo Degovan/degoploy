@@ -17,9 +17,9 @@
 <section class="border-b">
 	<div class="container-page flex flex-wrap items-end justify-between gap-x-8 gap-y-4 py-10">
 		<div class="flex min-w-0 flex-col gap-2">
-			<h1 class="text-3xl font-semibold tracking-tight md:text-4xl">{title}</h1>
+			<h1 class="text-3xl font-semibold tracking-[-1.2px] md:text-[32px]">{title}</h1>
 			{#if description}
-				<p class="text-muted-foreground">{description}</p>
+				<p class="text-sm text-muted-foreground">{description}</p>
 			{/if}
 		</div>
 		{#if actions || aside}

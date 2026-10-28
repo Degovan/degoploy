@@ -1,17 +1,27 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import { cn } from '#lib/utils.js';
 
 	let {
 		title,
 		description,
 		actions,
-		id
-	}: { title: string; description?: string; actions?: Snippet; id?: string } = $props();
+		id,
+		size = 'default'
+	}: {
+		title: string;
+		description?: string;
+		actions?: Snippet;
+		id?: string;
+		size?: 'default' | 'sm';
+	} = $props();
 </script>
 
 <div class="flex flex-wrap items-end justify-between gap-3">
 	<div class="flex min-w-0 flex-col gap-1">
-		<h2 class="text-lg font-semibold tracking-tight" {id}>{title}</h2>
+		<h2 class={cn('font-semibold', size === 'sm' ? 'text-base' : 'text-lg tracking-tight')} {id}>
+			{title}
+		</h2>
 		{#if description}<p class="text-sm text-muted-foreground">{description}</p>{/if}
 	</div>
 	{#if actions}
