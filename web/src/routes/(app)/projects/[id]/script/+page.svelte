@@ -132,7 +132,7 @@
 			<Button
 				variant="outline"
 				class="h-9 px-3 text-[13px]"
-				href={`${resolve('/(app)/projects/[id]/settings', { id: String(data.id) })}#script-section`}
+				href={`${resolve('/(app)/projects/[id]/settings', { id: String(data.id) })}#deploy-script`}
 			>
 				<Settings2Icon class="text-muted-foreground" />
 				Change source
