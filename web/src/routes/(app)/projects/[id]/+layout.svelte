@@ -44,7 +44,8 @@
 	// These pages render their own header band and body instead of the project hero.
 	const ownLayouts = new Set([
 		'/(app)/projects/[id]/deployments/[did]',
-		'/(app)/projects/[id]/triggers'
+		'/(app)/projects/[id]/triggers',
+		'/(app)/projects/[id]/script'
 	]);
 	const ownLayout = $derived(ownLayouts.has(page.route.id ?? ''));
 </script>

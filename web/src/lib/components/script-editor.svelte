@@ -3,15 +3,27 @@
 	import { basicSetup } from 'codemirror';
 	import { EditorView, keymap } from '@codemirror/view';
 	import { Compartment, EditorState } from '@codemirror/state';
-	import { StreamLanguage } from '@codemirror/language';
+	import { HighlightStyle, StreamLanguage, syntaxHighlighting } from '@codemirror/language';
 	import { shell } from '@codemirror/legacy-modes/mode/shell';
 	import { indentWithTab } from '@codemirror/commands';
+	import { tags as t } from '@lezer/highlight';
+	import { cn } from '#lib/utils.js';
 
 	let {
 		value = $bindable(''),
+		// eslint-disable-next-line no-useless-assignment -- written for the parent to bind
+		cursor = $bindable({ line: 1, col: 1 }),
 		readonly = false,
-		onsave
-	}: { value?: string; readonly?: boolean; onsave?: () => void } = $props();
+		onsave,
+		class: className
+	}: {
+		value?: string;
+		/** 1-based position of the main cursor. */
+		cursor?: { line: number; col: number };
+		readonly?: boolean;
+		onsave?: () => void;
+		class?: string;
+	} = $props();
 
 	let host: HTMLDivElement;
 	let view: EditorView | undefined;
@@ -25,22 +37,59 @@
 			color: 'var(--foreground)',
 			height: '100%'
 		},
-		'.cm-scroller': { fontFamily: 'var(--font-mono, ui-monospace, monospace)', lineHeight: '1.55' },
-		'.cm-content': { caretColor: 'var(--foreground)' },
+		'.cm-scroller': {
+			fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+			lineHeight: '24px',
+			scrollbarWidth: 'thin'
+		},
+		'.cm-content': { padding: '10px 0 14px', caretColor: 'var(--foreground)' },
+		'.cm-line': { padding: '0 20px' },
 		'.cm-gutters': {
-			backgroundColor: 'var(--muted)',
-			color: 'var(--muted-foreground)',
-			borderRight: '1px solid var(--border)'
+			backgroundColor: 'var(--card)',
+			color: 'color-mix(in oklch, var(--muted-foreground) 80%, transparent)',
+			border: 'none'
 		},
+		'.cm-lineNumbers .cm-gutterElement': {
+			boxSizing: 'border-box',
+			minWidth: '52px',
+			padding: '0 12px 0 8px',
+			fontSize: '12px'
+		},
+		'.cm-gutter.cm-foldGutter': { display: 'none !important' },
 		'.cm-activeLine, .cm-activeLineGutter': {
-			backgroundColor: 'color-mix(in oklch, var(--muted) 60%, transparent)'
+			backgroundColor: 'color-mix(in oklch, var(--foreground) 3%, transparent)'
 		},
+		'.cm-activeLineGutter': { color: 'var(--muted-foreground)' },
 		'&.cm-focused': { outline: 'none' },
-		'&.cm-focused .cm-cursor': { borderLeftColor: 'var(--foreground)' },
+		'.cm-cursor, &.cm-focused .cm-cursor': {
+			borderLeftColor: 'var(--foreground)',
+			borderLeftWidth: '2px'
+		},
 		'.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': {
 			backgroundColor: 'color-mix(in oklch, var(--ring) 35%, transparent) !important'
+		},
+		'.cm-selectionMatch': {
+			backgroundColor: 'color-mix(in oklch, var(--ring) 20%, transparent)'
+		},
+		'.cm-matchingBracket, &.cm-focused .cm-matchingBracket': {
+			backgroundColor: 'color-mix(in oklch, var(--foreground) 12%, transparent)',
+			outline: 'none'
 		}
 	});
+
+	// Token colours of the shell mode: keywords and common commands, strings,
+	// $variables, flags and comments.
+	const highlight = HighlightStyle.define([
+		{ tag: [t.keyword, t.standard(t.variableName)], color: 'var(--code-keyword)' },
+		{ tag: [t.string, t.special(t.string)], color: 'var(--code-string)' },
+		{ tag: t.definition(t.variableName), color: 'var(--code-variable)' },
+		{ tag: [t.number, t.atom, t.bool], color: 'var(--code-number)' },
+		{ tag: [t.attributeName, t.operator], color: 'var(--muted-foreground)' },
+		{
+			tag: [t.comment, t.meta],
+			color: 'color-mix(in oklch, var(--muted-foreground) 80%, transparent)'
+		}
+	]);
 
 	onMount(() => {
 		view = new EditorView({
@@ -50,6 +99,7 @@
 				extensions: [
 					basicSetup,
 					StreamLanguage.define(shell),
+					syntaxHighlighting(highlight),
 					keymap.of([
 						indentWithTab,
 						{
@@ -65,6 +115,11 @@
 					editable.of([EditorState.readOnly.of(readonly), EditorView.editable.of(!readonly)]),
 					EditorView.updateListener.of((u) => {
 						if (u.docChanged) value = u.state.doc.toString();
+						if (u.docChanged || u.selectionSet) {
+							const head = u.state.selection.main.head;
+							const line = u.state.doc.lineAt(head);
+							cursor = { line: line.number, col: head - line.from + 1 };
+						}
 					})
 				]
 			})
@@ -90,4 +145,4 @@
 	});
 </script>
 
-<div bind:this={host} class="h-full min-h-80 overflow-hidden rounded-md border"></div>
+<div bind:this={host} class={cn('h-full min-h-0 overflow-hidden', className)}></div>
