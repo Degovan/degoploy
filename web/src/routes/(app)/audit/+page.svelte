@@ -25,6 +25,7 @@
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
+	import FingerprintIcon from '@lucide/svelte/icons/fingerprint-pattern';
 	import FolderGit2Icon from '@lucide/svelte/icons/folder-git-2';
 	import GitBranchIcon from '@lucide/svelte/icons/git-branch';
 	import HistoryIcon from '@lucide/svelte/icons/history';
@@ -47,7 +48,8 @@
 		'variable.': KeyRoundIcon,
 		'deployment.': RocketIcon,
 		'user.': UserCogIcon,
-		'invite.': MailIcon
+		'invite.': MailIcon,
+		'sso.': FingerprintIcon
 	};
 	const iconFor = (action: string) =>
 		action === 'auth.logout' ? LogOutIcon : categoryIcons[categoryOf(action) ?? 'auth.'];

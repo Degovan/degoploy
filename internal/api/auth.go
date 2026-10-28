@@ -13,17 +13,15 @@ import (
 )
 
 func (a *API) providers(w http.ResponseWriter, r *http.Request) {
+	local, o, _ := a.signIn()
 	httpx.JSON(w, http.StatusOK, AuthProviders{
-		Local: a.cfg.LocalLogin,
-		OIDC: OIDCProvider{
-			Enabled: a.cfg.OIDC.Enabled,
-			Name:    a.cfg.OIDC.ProviderName,
-		},
+		Local: local,
+		OIDC:  OIDCProvider{Enabled: o.Enabled, Name: o.ProviderName},
 	})
 }
 
 func (a *API) login(w http.ResponseWriter, r *http.Request) {
-	if !a.cfg.LocalLogin {
+	if local, _, _ := a.signIn(); !local {
 		httpx.Error(w, http.StatusForbidden, "local_login_disabled", "local login is disabled")
 		return
 	}

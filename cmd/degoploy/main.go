@@ -123,6 +123,12 @@ func runServe(args []string) error {
 	if err != nil {
 		return fmt.Errorf("secret key: %w", err)
 	}
+	// The SSO page writes the client secret encrypted with this key.
+	if sealed, ok := strings.CutPrefix(cfg.OIDC.ClientSecret, config.SealedPrefix); ok {
+		if cfg.OIDC.ClientSecret, err = box.Open(sealed, config.OIDCSecretScope); err != nil {
+			return fmt.Errorf("oidc client_secret: %w", err)
+		}
+	}
 
 	slog.Info("starting degoploy", "version", version)
 	return server.New(cfg, st, box, version).Run(ctx)

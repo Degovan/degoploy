@@ -44,7 +44,7 @@ func toInvite(inv *store.Invite) Invite {
 
 // invitesAllowed rejects invites while local login is off: they create password accounts.
 func (a *API) invitesAllowed(w http.ResponseWriter) bool {
-	if !a.cfg.LocalLogin {
+	if local, _, _ := a.signIn(); !local {
 		httpx.Error(w, http.StatusConflict, "local_login_disabled",
 			"local login is disabled, so invited users could not sign in")
 		return false

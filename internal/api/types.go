@@ -402,17 +402,60 @@ type SSOLogin struct {
 	Claims   map[string]any `json:"claims" tstype:"AuditDetail"`
 }
 
-// SSOStatus describes the OIDC setup (no secrets) and recent sign-ins.
+// SSOStatus describes the sign-in settings (never the client secret), who uses
+// each method, and recent SSO sign-ins.
 type SSOStatus struct {
 	Enabled         bool              `json:"enabled"`
 	LocalLogin      bool              `json:"local_login"`
 	ProviderName    string            `json:"provider_name"`
 	Issuer          string            `json:"issuer"`
 	ClientID        string            `json:"client_id"`
+	ClientSecretSet bool              `json:"client_secret_set"`
 	RedirectURL     string            `json:"redirect_url"`
 	Scopes          []string          `json:"scopes"`
 	GroupsClaim     string            `json:"groups_claim"`
 	RoleMapping     map[string]string `json:"role_mapping"`
 	SyncRoleOnLogin bool              `json:"sync_role_on_login"`
-	RecentLogins    []SSOLogin        `json:"recent_logins"`
+	// Locked maps settings that come from the environment ("oidc.issuer") to
+	// their source ("DEGOPLOY_OIDC_ISSUER" or "${VAR}"); they cannot be edited here.
+	Locked map[string]string `json:"locked"`
+	// ConfigPath is the YAML file that saving writes; empty when there is none.
+	ConfigPath     string     `json:"config_path"`
+	LocalUsers     int        `json:"local_users"`
+	LastLocalLogin *string    `json:"last_local_login" tstype:"string | null,required"`
+	SSOUsers       int        `json:"sso_users"`
+	LastSSOLogin   *string    `json:"last_sso_login" tstype:"string | null,required"`
+	RecentLogins   []SSOLogin `json:"recent_logins"`
+}
+
+// UpdateSSORequest is a partial update of the sign-in settings; omitted fields
+// keep their value. ClientSecret is write-only.
+type UpdateSSORequest struct {
+	LocalLogin      *bool             `json:"local_login,omitempty"`
+	Enabled         *bool             `json:"enabled,omitempty"`
+	ProviderName    *string           `json:"provider_name,omitempty"`
+	Issuer          *string           `json:"issuer,omitempty"`
+	ClientID        *string           `json:"client_id,omitempty"`
+	ClientSecret    *string           `json:"client_secret,omitempty"`
+	RedirectURL     *string           `json:"redirect_url,omitempty"`
+	Scopes          []string          `json:"scopes,omitempty"`
+	GroupsClaim     *string           `json:"groups_claim,omitempty"`
+	RoleMapping     map[string]string `json:"role_mapping,omitempty"`
+	SyncRoleOnLogin *bool             `json:"sync_role_on_login,omitempty"`
+}
+
+type DiscoverRequest struct {
+	Issuer string `json:"issuer"`
+}
+
+// OIDCDiscovery is the part of a provider's discovery document the SSO page shows.
+type OIDCDiscovery struct {
+	Issuer                string   `json:"issuer"`
+	AuthorizationEndpoint string   `json:"authorization_endpoint"`
+	TokenEndpoint         string   `json:"token_endpoint"`
+	UserinfoEndpoint      string   `json:"userinfo_endpoint"`
+	JWKSURI               string   `json:"jwks_uri"`
+	ScopesSupported       []string `json:"scopes_supported"`
+	ClaimsSupported       []string `json:"claims_supported"`
+	CheckedAt             string   `json:"checked_at"`
 }

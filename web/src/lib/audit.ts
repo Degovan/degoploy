@@ -8,7 +8,8 @@ export const auditCategories = [
 	{ value: 'variable.', label: 'Variables' },
 	{ value: 'deployment.', label: 'Deployments' },
 	{ value: 'user.', label: 'Users' },
-	{ value: 'invite.', label: 'Invites' }
+	{ value: 'invite.', label: 'Invites' },
+	{ value: 'sso.', label: 'Sign-in methods' }
 ] as const;
 
 export type AuditCategory = (typeof auditCategories)[number]['value'];
@@ -210,6 +211,12 @@ export function describe(e: AuditEntry, names: Map<string, string>): AuditSenten
 			};
 		case 'invite.revoke':
 			return { actor, verb: 'revoked the invite for', target: str(d.email), mono: true, meta: [] };
+		case 'sso.update':
+			return {
+				actor,
+				verb: 'changed the sign-in settings',
+				meta: Array.isArray(d.changed) ? (d.changed as string[]) : []
+			};
 		case 'invite.accept':
 			return { actor, verb: 'accepted an invite', suffix: `as ${roleLabel(d.role)}`, meta: [] };
 	}

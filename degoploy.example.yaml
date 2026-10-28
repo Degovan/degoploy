@@ -1,5 +1,11 @@
 # Copy to degoploy.yaml and adjust. Every value can also be set via DEGOPLOY_* env vars,
 # and ${VAR} references are expanded from the environment.
+#
+# Sign-in settings (local_login and the oidc block) can also be edited on the SSO page:
+# degoploy writes them back to this file, keeping comments, and applies them at once.
+# Values set through DEGOPLOY_* variables or ${VAR} references stay read-only there.
+# A client secret entered on that page is stored as "sealed:..." (encrypted with the
+# secret key below).
 
 # Bind to loopback and put a reverse proxy (HTTPS) in front.
 listen: "127.0.0.1:8090"

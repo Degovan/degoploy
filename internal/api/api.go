@@ -3,6 +3,7 @@ package api
 
 import (
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/degovan/degoploy/internal/audit"
@@ -26,8 +27,12 @@ type API struct {
 	deploys  *deploy.Service
 	hub      *realtime.Hub
 	secrets  *secrets.Box
-	oidc     *auth.OIDCProvider // nil when SSO is disabled
 	version  string
+
+	// signInMu guards cfg.LocalLogin, cfg.OIDC and oidc, which the SSO page
+	// changes at runtime; read them through signIn().
+	signInMu sync.RWMutex
+	oidc     *auth.OIDCProvider // nil when SSO is disabled
 
 	pendingSSO *auth.PendingLogins
 	sso        ssoLog
@@ -94,6 +99,15 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusNotFound, "not_found", "no such endpoint")
 	})
+}
+
+// signIn returns the current sign-in settings and the OIDC provider (nil when
+// SSO is off). Updates replace them wholesale, so the returned values are safe
+// to keep for the rest of a request.
+func (a *API) signIn() (localLogin bool, o config.OIDC, p *auth.OIDCProvider) {
+	a.signInMu.RLock()
+	defer a.signInMu.RUnlock()
+	return a.cfg.LocalLogin, a.cfg.OIDC, a.oidc
 }
 
 // Sweep evicts idle rate-limiter entries; call periodically.

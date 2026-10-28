@@ -30,6 +30,12 @@ type Config struct {
 
 	// Parsed from TrustedProxies by Load.
 	TrustedPrefixes []netip.Prefix `yaml:"-"`
+	// Path is the YAML file Load read, where SaveSignIn writes; empty without one.
+	Path string `yaml:"-"`
+	// Locked maps sign-in settings that come from the environment (a DEGOPLOY_*
+	// variable or a ${VAR} reference in the file) to that source. They cannot be
+	// changed from the UI.
+	Locked map[string]string `yaml:"-"`
 }
 
 type OIDC struct {
@@ -65,6 +71,8 @@ func Default() Config {
 // Load reads path (optional; empty means defaults + env only) and applies env overrides.
 func Load(path string) (Config, error) {
 	cfg := Default()
+	cfg.Path = path
+	cfg.Locked = map[string]string{}
 
 	if path != "" {
 		raw, err := os.ReadFile(path)
@@ -74,6 +82,7 @@ func Load(path string) (Config, error) {
 		if err := yaml.Unmarshal(expandEnv(raw), &cfg); err != nil {
 			return cfg, fmt.Errorf("parse config %s: %w", path, err)
 		}
+		lockEnvRefs(raw, cfg.Locked)
 	}
 
 	if err := applyEnv(&cfg); err != nil {
@@ -108,6 +117,7 @@ func applyEnv(cfg *Config) error {
 	for k, p := range str {
 		if v, ok := os.LookupEnv(k); ok {
 			*p = v
+			lockEnv(cfg, k)
 		}
 	}
 
@@ -122,6 +132,7 @@ func applyEnv(cfg *Config) error {
 				return fmt.Errorf("%s: %w", k, err)
 			}
 			*p = b
+			lockEnv(cfg, k)
 		}
 	}
 
@@ -168,8 +179,19 @@ func (c *Config) finalize() error {
 		c.TrustedPrefixes = append(c.TrustedPrefixes, p.Masked())
 	}
 
-	if c.OIDC.Enabled {
-		o := c.OIDC
+	if c.OIDC.Enabled && c.OIDC.GroupsClaim == "" {
+		c.OIDC.GroupsClaim = "groups"
+	}
+	if err := ValidateSignIn(c.LocalLogin, c.OIDC); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+// ValidateSignIn checks the sign-in settings: local_login and the oidc block.
+func ValidateSignIn(localLogin bool, o OIDC) error {
+	var errs []error
+	if o.Enabled {
 		if o.Issuer == "" || o.ClientID == "" || o.RedirectURL == "" {
 			errs = append(errs, errors.New("oidc: issuer, client_id and redirect_url are required when enabled"))
 		}
@@ -183,11 +205,8 @@ func (c *Config) finalize() error {
 				errs = append(errs, fmt.Errorf("oidc: role_mapping[%q] = %q; use admin, deployer or viewer", group, role))
 			}
 		}
-		if c.OIDC.GroupsClaim == "" {
-			c.OIDC.GroupsClaim = "groups"
-		}
 	}
-	if !c.LocalLogin && !c.OIDC.Enabled {
+	if !localLogin && !o.Enabled {
 		errs = append(errs, errors.New("at least one of local_login or oidc must be enabled"))
 	}
 	return errors.Join(errs...)

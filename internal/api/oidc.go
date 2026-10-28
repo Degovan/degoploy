@@ -50,25 +50,40 @@ func (l *ssoLog) list() []SSOLogin {
 func (a *API) registerOIDC(mux *http.ServeMux) {
 	mux.HandleFunc("GET /auth/oidc/login", a.oidcLogin)
 	mux.HandleFunc("GET /auth/oidc/callback", a.oidcCallback)
-	mux.Handle("GET /api/v1/auth/sso", auth.RequireAuth(a.authz.Require(auth.ActionUserManage, http.HandlerFunc(a.ssoStatus))))
+	a.registerSSO(mux)
 }
 
 // oidcLogin starts the authorization-code flow with PKCE.
 func (a *API) oidcLogin(w http.ResponseWriter, r *http.Request) {
-	if a.oidc == nil {
+	_, o, provider := a.signIn()
+	if provider == nil {
 		a.loginError(w, r, "Single sign-on is not configured.")
 		return
 	}
+	pending := auth.PendingLogin{Next: safeNext(r.URL.Query().Get("next"))}
+	if r.URL.Query().Get("test") == "1" {
+		// Only someone who manages SSO may run a test; it never signs anyone in.
+		ident := auth.FromContext(r.Context())
+		if ident == nil || !a.authz.Can(r.Context(), ident.User, auth.ActionUserManage, 0) {
+			a.loginError(w, r, "Sign in as an admin to test single sign-on.")
+			return
+		}
+		pending.Test, pending.Next = true, "/sso"
+	}
 	state, nonce, verifier := auth.RandomString(24), auth.RandomString(24), oauth2.GenerateVerifier()
-	target, err := a.oidc.AuthURL(r.Context(), state, nonce, verifier)
+	target, err := provider.AuthURL(r.Context(), state, nonce, verifier)
 	if err != nil {
 		slog.Error("oidc login", "err", err)
-		a.loginError(w, r, fmt.Sprintf("%s is unreachable right now. Try again later or sign in with a password.", a.cfg.OIDC.ProviderName))
+		msg := fmt.Sprintf("%s is unreachable right now. Try again later or sign in with a password.", o.ProviderName)
+		if pending.Test {
+			a.testResult(w, r, false, fmt.Sprintf("%s is unreachable: %v", o.ProviderName, err))
+			return
+		}
+		a.loginError(w, r, msg)
 		return
 	}
-	id := a.pendingSSO.Put(auth.PendingLogin{
-		State: state, Nonce: nonce, Verifier: verifier, Next: safeNext(r.URL.Query().Get("next")),
-	})
+	pending.State, pending.Nonce, pending.Verifier = state, nonce, verifier
+	id := a.pendingSSO.Put(pending)
 	http.SetCookie(w, &http.Cookie{
 		Name: oidcCookie, Value: id, Path: oidcCookiePath, MaxAge: 600,
 		HttpOnly: true, Secure: a.cfg.SecureCookies(), SameSite: http.SameSiteLaxMode,
@@ -77,7 +92,8 @@ func (a *API) oidcLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) oidcCallback(w http.ResponseWriter, r *http.Request) {
-	if a.oidc == nil {
+	_, o, provider := a.signIn()
+	if provider == nil {
 		a.loginError(w, r, "Single sign-on is not configured.")
 		return
 	}
@@ -95,23 +111,29 @@ func (a *API) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		a.loginError(w, r, "The sign-in attempt expired or was started in another browser. Please try again.")
 		return
 	}
+	// A test reports to the SSO page and is not a sign-in attempt worth auditing.
+	fail := func(subject, reason, msg string) {
+		if pending.Test {
+			a.testResult(w, r, false, firstNonEmpty(reason, msg))
+			return
+		}
+		a.ssoFailed(r, ip, subject, reason)
+		a.loginError(w, r, msg)
+	}
 	if e := q.Get("error"); e != "" {
 		msg := firstNonEmpty(q.Get("error_description"), e)
-		a.ssoFailed(r, ip, "", fmt.Sprintf("provider returned %s", e))
-		a.loginError(w, r, fmt.Sprintf("%s did not sign you in: %s", a.cfg.OIDC.ProviderName, msg))
+		fail("", fmt.Sprintf("provider returned %s", e), fmt.Sprintf("%s did not sign you in: %s", o.ProviderName, msg))
 		return
 	}
 	if subtle.ConstantTimeCompare([]byte(q.Get("state")), []byte(pending.State)) != 1 {
-		a.ssoFailed(r, ip, "", "state mismatch")
-		a.loginError(w, r, "The sign-in response did not match this browser session. Please try again.")
+		fail("", "state mismatch", "The sign-in response did not match this browser session. Please try again.")
 		return
 	}
 
-	claims, err := a.oidc.Exchange(r.Context(), q.Get("code"), pending.Verifier, pending.Nonce)
+	claims, err := provider.Exchange(r.Context(), q.Get("code"), pending.Verifier, pending.Nonce)
 	if err != nil {
 		slog.Error("oidc callback", "err", err)
-		a.ssoFailed(r, ip, "", err.Error())
-		a.loginError(w, r, fmt.Sprintf("Signing in with %s failed. Ask an admin to check the SSO settings.", a.cfg.OIDC.ProviderName))
+		fail("", err.Error(), fmt.Sprintf("Signing in with %s failed. Ask an admin to check the SSO settings.", o.ProviderName))
 		return
 	}
 
@@ -119,7 +141,24 @@ func (a *API) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		At: time.Now().UTC().Format(time.RFC3339), Subject: claims.Subject, Email: claims.Email,
 		Groups: nonNil(claims.Groups), Claims: claims.Raw,
 	}
-	role, allowed := auth.MapRole(a.cfg.OIDC.RoleMapping, claims.Groups)
+	role, allowed := auth.MapRole(o.RoleMapping, claims.Groups)
+	if pending.Test {
+		who := firstNonEmpty(claims.Email, claims.Username, claims.Subject)
+		groups := "no groups"
+		if len(claims.Groups) > 0 {
+			groups = "groups " + strings.Join(claims.Groups, ", ")
+		}
+		if allowed {
+			entry.Role, entry.Outcome = string(role), "test: allowed"
+			a.sso.add(entry)
+			a.testResult(w, r, true, fmt.Sprintf("%s (%s) would sign in as %s.", who, groups, role))
+		} else {
+			entry.Outcome = "test: denied, no group in role_mapping"
+			a.sso.add(entry)
+			a.testResult(w, r, false, fmt.Sprintf("%s (%s) matches no role mapping and would be refused.", who, groups))
+		}
+		return
+	}
 	if !allowed {
 		entry.Outcome = "denied: no group in role_mapping"
 		a.sso.add(entry)
@@ -129,7 +168,7 @@ func (a *API) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	entry.Role = string(role)
 
-	u, created, err := a.upsertSSOUser(r, claims, role)
+	u, created, err := a.upsertSSOUser(r, claims, role, o.SyncRoleOnLogin)
 	if err != nil {
 		httpx.InternalError(w, r, err)
 		return
@@ -166,7 +205,7 @@ func (a *API) oidcCallback(w http.ResponseWriter, r *http.Request) {
 // upsertSSOUser finds the account for the provider subject or creates one.
 // Accounts are matched only by issuer+subject, never by username or email, so an
 // identity provider user can never take over an existing local account.
-func (a *API) upsertSSOUser(r *http.Request, c *auth.OIDCClaims, role store.Role) (*store.User, bool, error) {
+func (a *API) upsertSSOUser(r *http.Request, c *auth.OIDCClaims, role store.Role, syncRole bool) (*store.User, bool, error) {
 	ctx := r.Context()
 	displayName := firstNonEmpty(c.Name, c.Username, c.Email)
 	u, err := a.store.UserByOIDC(ctx, c.Issuer, c.Subject)
@@ -174,7 +213,7 @@ func (a *API) upsertSSOUser(r *http.Request, c *auth.OIDCClaims, role store.Role
 	case err == nil:
 		next := *u
 		next.Email, next.DisplayName = c.Email, firstNonEmpty(displayName, u.DisplayName)
-		if a.cfg.OIDC.SyncRoleOnLogin {
+		if syncRole {
 			next.Role = role
 		}
 		if next != *u {
@@ -227,18 +266,18 @@ func ssoUsername(c *auth.OIDCClaims) string {
 	return name
 }
 
-func (a *API) ssoStatus(w http.ResponseWriter, r *http.Request) {
-	o := a.cfg.OIDC
-	httpx.JSON(w, http.StatusOK, SSOStatus{
-		Enabled: o.Enabled, LocalLogin: a.cfg.LocalLogin, ProviderName: o.ProviderName, Issuer: o.Issuer,
-		ClientID: o.ClientID, RedirectURL: o.RedirectURL, Scopes: nonNil(o.Scopes), GroupsClaim: o.GroupsClaim,
-		RoleMapping: o.RoleMapping, SyncRoleOnLogin: o.SyncRoleOnLogin, RecentLogins: a.sso.list(),
-	})
-}
-
 func (a *API) ssoFailed(r *http.Request, ip, subject, reason string) {
 	a.audit.Record(r.Context(), audit.Entry{Action: audit.LoginFailed, IP: ip,
 		Detail: map[string]any{"provider": store.ProviderOIDC, "subject": subject, "reason": reason}})
+}
+
+// testResult sends an admin back to the SSO page with the outcome of a test sign-in.
+func (a *API) testResult(w http.ResponseWriter, r *http.Request, ok bool, msg string) {
+	v := url.Values{"test": {msg}}
+	if ok {
+		v.Set("ok", "1")
+	}
+	http.Redirect(w, r, "/sso?"+v.Encode(), http.StatusFound)
 }
 
 // loginError sends the browser back to the login page with a message to show.

@@ -198,6 +198,9 @@ type PendingLogin struct {
 	Verifier string
 	Next     string
 	Expires  time.Time
+	// Test checks the SSO settings for an admin: the callback reports the
+	// result on the SSO page instead of signing anyone in.
+	Test bool
 }
 
 const (

@@ -442,7 +442,8 @@ export interface SSOLogin {
 	claims: AuditDetail;
 }
 /**
- * SSOStatus describes the OIDC setup (no secrets) and recent sign-ins.
+ * SSOStatus describes the sign-in settings (never the client secret), who uses
+ * each method, and recent SSO sign-ins.
  */
 export interface SSOStatus {
 	enabled: boolean;
@@ -450,10 +451,57 @@ export interface SSOStatus {
 	provider_name: string;
 	issuer: string;
 	client_id: string;
+	client_secret_set: boolean;
 	redirect_url: string;
 	scopes: string[];
 	groups_claim: string;
 	role_mapping: { [key: string]: string };
 	sync_role_on_login: boolean;
+	/**
+	 * Locked maps settings that come from the environment ("oidc.issuer") to
+	 * their source ("DEGOPLOY_OIDC_ISSUER" or "${VAR}"); they cannot be edited here.
+	 */
+	locked: { [key: string]: string };
+	/**
+	 * ConfigPath is the YAML file that saving writes; empty when there is none.
+	 */
+	config_path: string;
+	local_users: number /* int */;
+	last_local_login: string | null;
+	sso_users: number /* int */;
+	last_sso_login: string | null;
 	recent_logins: SSOLogin[];
+}
+/**
+ * UpdateSSORequest is a partial update of the sign-in settings; omitted fields
+ * keep their value. ClientSecret is write-only.
+ */
+export interface UpdateSSORequest {
+	local_login?: boolean;
+	enabled?: boolean;
+	provider_name?: string;
+	issuer?: string;
+	client_id?: string;
+	client_secret?: string;
+	redirect_url?: string;
+	scopes?: string[];
+	groups_claim?: string;
+	role_mapping?: { [key: string]: string };
+	sync_role_on_login?: boolean;
+}
+export interface DiscoverRequest {
+	issuer: string;
+}
+/**
+ * OIDCDiscovery is the part of a provider's discovery document the SSO page shows.
+ */
+export interface OIDCDiscovery {
+	issuer: string;
+	authorization_endpoint: string;
+	token_endpoint: string;
+	userinfo_endpoint: string;
+	jwks_uri: string;
+	scopes_supported: string[];
+	claims_supported: string[];
+	checked_at: string;
 }

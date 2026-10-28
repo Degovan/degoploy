@@ -46,6 +46,8 @@ const (
 	InviteRenew  = "invite.renew"
 	InviteRevoke = "invite.revoke"
 	InviteAccept = "invite.accept"
+
+	SSOUpdate = "sso.update"
 )
 
 // sensitive actions touch credentials or access; the audit log highlights them.
@@ -57,6 +59,7 @@ var sensitive = map[string]bool{
 	ProjectSecretRegenerate: true,
 	UserDelete:              true,
 	UserPasswordReset:       true,
+	SSOUpdate:               true,
 }
 
 // IsSensitive reports whether an action is highlighted as sensitive.
