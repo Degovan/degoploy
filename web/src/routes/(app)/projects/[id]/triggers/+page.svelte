@@ -394,7 +394,7 @@
 <RuleDialog
 	bind:open={dialogOpen}
 	initial={dialogInitial}
-	title={editing ? `Edit rule "${editing.name}"` : 'New rule'}
+	mode={editing ? 'edit' : 'create'}
 	onsubmit={saveRule}
 />
 

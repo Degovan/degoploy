@@ -2,6 +2,7 @@
 	import { ApiError, errorMessage } from '#lib/api/client.js';
 	import { rulesApi } from '#lib/api/rules.js';
 	import type { RuleTestResponse, TriggerEvent } from '#lib/api/types.gen.js';
+	import EventToggle from '#lib/components/event-toggle.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
 	import { Label } from '#lib/components/ui/label/index.js';
@@ -9,10 +10,8 @@
 	import { cn } from '#lib/utils.js';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import ChevronsRightIcon from '@lucide/svelte/icons/chevrons-right';
-	import GitBranchIcon from '@lucide/svelte/icons/git-branch';
 	import LoaderIcon from '@lucide/svelte/icons/loader-circle';
 	import PlayIcon from '@lucide/svelte/icons/play';
-	import TagIcon from '@lucide/svelte/icons/tag';
 
 	// Dry-runs the project's saved rules against a push described in the form.
 	let { projectId }: { projectId: number } = $props();
@@ -24,11 +23,6 @@
 	let result = $state<RuleTestResponse | null>(null);
 	let error = $state('');
 	let running = $state(false);
-
-	const kinds = [
-		{ value: 'push', label: 'Branch', icon: GitBranchIcon },
-		{ value: 'tag', label: 'Tag', icon: TagIcon }
-	] as const;
 
 	async function run(e: SubmitEvent) {
 		e.preventDefault();
@@ -63,30 +57,7 @@
 			</p>
 		</div>
 
-		<div
-			class="grid h-9 grid-cols-2 gap-0.5 rounded-md border border-input p-[3px]"
-			role="radiogroup"
-			aria-label="Push type"
-		>
-			{#each kinds as k (k.value)}
-				{@const active = event === k.value}
-				<button
-					type="button"
-					role="radio"
-					aria-checked={active}
-					class={cn(
-						'flex items-center justify-center gap-1.5 rounded-sm text-[13px] font-medium transition-colors [&_svg]:size-3.5',
-						active
-							? 'bg-accent text-foreground'
-							: 'text-muted-foreground hover:text-foreground [&_svg]:text-muted-foreground/80'
-					)}
-					onclick={() => (event = k.value)}
-				>
-					<k.icon />
-					{k.label}
-				</button>
-			{/each}
-		</div>
+		<EventToggle bind:value={event} label="Push type" class="h-9" />
 
 		<div class="flex flex-col gap-2">
 			<Label for="sim-ref" class="text-[13px]">{event === 'tag' ? 'Tag' : 'Branch'}</Label>
