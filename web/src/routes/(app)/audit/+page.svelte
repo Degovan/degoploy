@@ -20,6 +20,7 @@
 		{ value: 'auth.', label: 'Sign-in' },
 		{ value: 'project.', label: 'Projects' },
 		{ value: 'rule.', label: 'Trigger rules' },
+		{ value: 'variable.', label: 'Variables' },
 		{ value: 'deployment.', label: 'Deployments' },
 		{ value: 'user.', label: 'Users' }
 	];
@@ -40,6 +41,9 @@
 		'rule.update': 'Updated trigger rule',
 		'rule.delete': 'Deleted trigger rule',
 		'rule.reorder': 'Reordered trigger rules',
+		'variable.create': 'Added variable',
+		'variable.update': 'Updated variable',
+		'variable.delete': 'Deleted variable',
 		'deployment.manual': 'Started deployment',
 		'deployment.cancel': 'Canceled deployment',
 		'deployment.redeploy': 'Redeployed',

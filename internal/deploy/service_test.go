@@ -16,6 +16,7 @@ import (
 
 	"github.com/degovan/degoploy/internal/project"
 	"github.com/degovan/degoploy/internal/realtime"
+	"github.com/degovan/degoploy/internal/secrets"
 	"github.com/degovan/degoploy/internal/store"
 )
 
@@ -30,6 +31,7 @@ type fixture struct {
 	manager *project.Manager
 	hub     *realtime.Hub
 	svc     *Service
+	box     *secrets.Box
 	root    string
 }
 
@@ -75,7 +77,11 @@ func newFixture(t *testing.T) *fixture {
 	f.store = st
 	f.manager = project.NewManager(st, dataDir)
 	f.hub = realtime.NewHub()
-	f.svc = NewService(st, f.manager, f.hub, 2)
+	f.box, err = secrets.New(make([]byte, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.svc = NewService(st, f.manager, f.hub, f.box, 2)
 	if err := f.svc.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -345,5 +351,61 @@ func TestLogStreamMatchesFile(t *testing.T) {
 		if e[0] >= int64(len(file)) || e[1] < d.StartedAt.UnixMilli()-1000 || i > 0 && (e[0] <= times[i-1][0] || e[1] < times[i-1][1]) {
 			t.Fatalf("entry %d = %v is out of order or range (log %d bytes)", i, e, len(file))
 		}
+	}
+}
+
+func TestProjectVariables(t *testing.T) {
+	f := newFixture(t)
+	p := f.project("vars", `echo "url=$APP_URL env=$APP_ENV"
+echo "password is $DB_PASSWORD"
+printf '%s' "$DB_PASSWORD" > secret.txt
+echo "fatal: cannot connect as $DB_PASSWORD" >&2
+exit 4`, 0)
+	ctx := context.Background()
+	for _, v := range []*store.Variable{
+		{ProjectID: p.ID, Name: "APP_URL", Value: "https://app.test"},
+		{ProjectID: p.ID, Name: "APP_ENV", Value: "staging"},
+		{ProjectID: p.ID, Name: "DB_PASSWORD", Value: f.box.Seal("s3cr3t-pw", secrets.ProjectScope(p.ID)), Secret: true},
+	} {
+		if err := f.store.CreateVariable(ctx, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rule := &store.TriggerRule{ProjectID: p.ID, Name: "prod", Enabled: true, Event: "push", RefPattern: "main",
+		ExtraEnv: map[string]string{"APP_ENV": "production"}}
+	if err := f.store.CreateRule(ctx, rule); err != nil {
+		t.Fatal(err)
+	}
+
+	d := f.wait(f.enqueue(p, rule).ID, store.DeploySuccess, store.DeployFailed)
+	log := readLog(t, d)
+	if d.Status != store.DeployFailed {
+		t.Fatalf("status %s\n%s", d.Status, log)
+	}
+	// The script got the decrypted value; the rule overrides the project variable.
+	if b, _ := os.ReadFile(filepath.Join(p.WorkDir, "secret.txt")); string(b) != "s3cr3t-pw" {
+		t.Fatalf("script saw DB_PASSWORD = %q", b)
+	}
+	for _, want := range []string{"url=https://app.test env=production", "password is ***",
+		"variables: APP_ENV, APP_URL, DB_PASSWORD"} {
+		if !strings.Contains(log, want) {
+			t.Fatalf("log lacks %q:\n%s", want, log)
+		}
+	}
+	if strings.Contains(log, "s3cr3t-pw") || strings.Contains(d.Error, "s3cr3t-pw") {
+		t.Fatalf("secret leaked; error %q, log:\n%s", d.Error, log)
+	}
+	if d.Error != "fatal: cannot connect as ***" {
+		t.Fatalf("error summary = %q", d.Error)
+	}
+
+	// A secret sealed with another key fails the deployment before it runs anything.
+	if err := f.store.CreateVariable(ctx, &store.Variable{ProjectID: p.ID, Name: "BROKEN",
+		Value: f.box.Seal("x", secrets.ProjectScope(p.ID+1)), Secret: true}); err != nil {
+		t.Fatal(err)
+	}
+	d = f.wait(f.enqueue(p, nil).ID, store.DeploySuccess, store.DeployFailed)
+	if d.Status != store.DeployFailed || !strings.Contains(d.Error, "secret BROKEN") || d.ScriptStartedAt != nil {
+		t.Fatalf("broken secret: status %s error %q script started %v", d.Status, d.Error, d.ScriptStartedAt)
 	}
 }

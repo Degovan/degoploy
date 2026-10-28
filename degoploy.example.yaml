@@ -13,6 +13,10 @@ trusted_proxies: [127.0.0.1/32, "::1/128"]
 session_ttl: 168h
 # Username/password login. Keep at least one break-glass admin even with SSO.
 local_login: true
+# Base64 AES-256 key that encrypts project secrets (generate with: openssl rand -base64 32).
+# Leave unset to use <data_dir>/secret.key, created on first start. Back it up: without
+# the key, stored secrets cannot be decrypted.
+# secret_key: ${DEGOPLOY_SECRET_KEY}
 
 oidc:
   enabled: false

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/degovan/degoploy/internal/project"
+	"github.com/degovan/degoploy/internal/secrets"
 	"github.com/degovan/degoploy/internal/store"
 )
 
@@ -40,6 +41,18 @@ func (s *Service) run(ctx context.Context, d *store.Deployment, p *store.Project
 		}
 	}
 
+	vars, masked, err := s.projectVars(ctx, p)
+	if err != nil {
+		return s.outcome(ctx, w, start, err)
+	}
+	if len(vars) > 0 {
+		names := make([]string, len(vars))
+		for i, kv := range vars {
+			names[i], _, _ = strings.Cut(kv, "=")
+		}
+		note(w, "variables: %s", strings.Join(names, ", "))
+	}
+
 	if p.AutoPull {
 		if err := s.pull(ctx, d, p, w); err != nil {
 			return s.outcome(ctx, w, start, err)
@@ -59,11 +72,14 @@ func (s *Service) run(ctx context.Context, d *store.Deployment, p *store.Project
 
 	cmd := exec.CommandContext(ctx, "bash", "--noprofile", "--norc", script)
 	cmd.Dir = p.WorkDir
-	cmd.Env = s.scriptEnv(d, p, rule)
+	cmd.Env = s.scriptEnv(d, p, rule, vars)
 	setProcessGroup(cmd)
+	// Secrets are masked before the last-line summary sees the output.
 	out := &lastLine{w: w}
-	cmd.Stdout, cmd.Stderr = out, out
+	red := newRedactor(out, masked)
+	cmd.Stdout, cmd.Stderr = red, red
 	err = cmd.Run()
+	red.Flush()
 	if ctx.Err() != nil && cmd.Process != nil {
 		// Make sure nothing from a canceled/timed-out group survives.
 		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
@@ -204,19 +220,44 @@ func (s *Service) scriptPath(p *store.Project) (string, error) {
 	return path, nil
 }
 
-// scriptEnv builds the deploy script environment. Rule variables come first so
-// the DEPLOY_* values set by degoploy always win.
+// projectVars returns the project's variables as KEY=value pairs, with secrets
+// decrypted, and the secret values to mask in the log.
+func (s *Service) projectVars(ctx context.Context, p *store.Project) (env, masked []string, err error) {
+	vars, err := s.store.ListVariables(ctx, p.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, v := range vars {
+		value := v.Value
+		if v.Secret {
+			if s.secrets == nil {
+				return nil, nil, fmt.Errorf("secret %s: no secret key configured", v.Name)
+			}
+			if value, err = s.secrets.Open(v.Value, secrets.ProjectScope(p.ID)); err != nil {
+				return nil, nil, fmt.Errorf("secret %s: %w", v.Name, err)
+			}
+			masked = append(masked, value)
+		}
+		env = append(env, v.Name+"="+value)
+	}
+	return env, masked, nil
+}
+
+// scriptEnv builds the deploy script environment. Later entries win, so the
+// order is: project variables, then rule variables, then the DEPLOY_* values
+// set by degoploy.
 //
 // Scripts get the project's GIT_SSH_COMMAND (so `git pull` and private
 // submodules use the deploy key) but not the transport restriction degoploy
 // applies to its own git calls.
-func (s *Service) scriptEnv(d *store.Deployment, p *store.Project, rule *store.TriggerRule) []string {
+func (s *Service) scriptEnv(d *store.Deployment, p *store.Project, rule *store.TriggerRule, vars []string) []string {
 	var env []string
 	for _, kv := range s.projects.GitEnv(p).Environ() {
 		if !strings.HasPrefix(kv, "GIT_ALLOW_PROTOCOL=") {
 			env = append(env, kv)
 		}
 	}
+	env = append(env, vars...)
 	ruleName := ""
 	if rule != nil {
 		ruleName = rule.Name

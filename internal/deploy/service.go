@@ -18,6 +18,7 @@ import (
 
 	"github.com/degovan/degoploy/internal/project"
 	"github.com/degovan/degoploy/internal/realtime"
+	"github.com/degovan/degoploy/internal/secrets"
 	"github.com/degovan/degoploy/internal/store"
 )
 
@@ -46,6 +47,7 @@ type Service struct {
 	store    *store.Store
 	projects *project.Manager
 	hub      *realtime.Hub
+	secrets  *secrets.Box // opens secret project variables
 	sem      chan struct{}
 
 	// OnUpdate is called after every deployment state change (for realtime events).
@@ -62,10 +64,10 @@ type Service struct {
 	jobs    map[int64]context.CancelCauseFunc // deployment id → cancel
 }
 
-func NewService(st *store.Store, projects *project.Manager, hub *realtime.Hub, maxParallel int) *Service {
+func NewService(st *store.Store, projects *project.Manager, hub *realtime.Hub, box *secrets.Box, maxParallel int) *Service {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Service{
-		store: st, projects: projects, hub: hub, sem: make(chan struct{}, maxParallel),
+		store: st, projects: projects, hub: hub, secrets: box, sem: make(chan struct{}, maxParallel),
 		ctx: ctx, cancel: cancel,
 		active: map[int64]bool{}, pending: map[int64]int64{}, jobs: map[int64]context.CancelCauseFunc{},
 	}

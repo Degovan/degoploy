@@ -23,7 +23,10 @@ type Config struct {
 	TrustedProxies []string      `yaml:"trusted_proxies"`
 	LocalLogin     bool          `yaml:"local_login"`
 	SessionTTL     time.Duration `yaml:"session_ttl"`
-	OIDC           OIDC          `yaml:"oidc"`
+	// SecretKey is the base64 AES-256 key that encrypts project secrets. Empty
+	// means a key file in the data dir, created on first start.
+	SecretKey string `yaml:"secret_key"`
+	OIDC      OIDC   `yaml:"oidc"`
 
 	// Parsed from TrustedProxies by Load.
 	TrustedPrefixes []netip.Prefix `yaml:"-"`
@@ -96,6 +99,7 @@ func applyEnv(cfg *Config) error {
 		"DEGOPLOY_LISTEN":             &cfg.Listen,
 		"DEGOPLOY_DATA_DIR":           &cfg.DataDir,
 		"DEGOPLOY_BASE_URL":           &cfg.BaseURL,
+		"DEGOPLOY_SECRET_KEY":         &cfg.SecretKey,
 		"DEGOPLOY_OIDC_ISSUER":        &cfg.OIDC.Issuer,
 		"DEGOPLOY_OIDC_CLIENT_ID":     &cfg.OIDC.ClientID,
 		"DEGOPLOY_OIDC_CLIENT_SECRET": &cfg.OIDC.ClientSecret,
@@ -195,6 +199,9 @@ func (c *Config) SecureCookies() bool {
 }
 
 func (c *Config) DBPath() string { return filepath.Join(c.DataDir, "degoploy.db") }
+
+// SecretKeyPath is the key file used when SecretKey is not set.
+func (c *Config) SecretKeyPath() string { return filepath.Join(c.DataDir, "secret.key") }
 
 func splitList(s string) []string {
 	var out []string

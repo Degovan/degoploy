@@ -43,6 +43,7 @@
 					href: resolve('/(app)/projects/[id]/script', { id }),
 					requires: 'project.deploy'
 				},
+				{ label: 'Environment', href: resolve('/(app)/projects/[id]/environment', { id }) },
 				{
 					label: 'Settings',
 					href: resolve('/(app)/projects/[id]/settings', { id }),

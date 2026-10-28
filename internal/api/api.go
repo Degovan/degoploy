@@ -12,6 +12,7 @@ import (
 	"github.com/degovan/degoploy/internal/httpx"
 	"github.com/degovan/degoploy/internal/project"
 	"github.com/degovan/degoploy/internal/realtime"
+	"github.com/degovan/degoploy/internal/secrets"
 	"github.com/degovan/degoploy/internal/store"
 )
 
@@ -24,6 +25,7 @@ type API struct {
 	projects *project.Manager
 	deploys  *deploy.Service
 	hub      *realtime.Hub
+	secrets  *secrets.Box
 	oidc     *auth.OIDCProvider // nil when SSO is disabled
 	version  string
 
@@ -43,6 +45,7 @@ type Deps struct {
 	Projects *project.Manager
 	Deploys  *deploy.Service
 	Hub      *realtime.Hub
+	Secrets  *secrets.Box
 	OIDC     *auth.OIDCProvider
 	Version  string
 }
@@ -60,6 +63,7 @@ func New(d Deps) *API {
 		loginLimiter: httpx.NewRateLimiter(6*time.Second, 10),        // burst 10, then 10/min per IP
 		hookLimiter:  httpx.NewRateLimiter(500*time.Millisecond, 60), // burst 60, then 120/min per IP
 		hub:          d.Hub,
+		secrets:      d.Secrets,
 		oidc:         d.OIDC,
 		pendingSSO:   auth.NewPendingLogins(),
 	}
@@ -77,6 +81,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/auth/logout", authed(http.HandlerFunc(a.logout)))
 	mux.Handle("GET /api/v1/me", authed(http.HandlerFunc(a.me)))
 	a.registerProjects(mux)
+	a.registerVariables(mux)
 	a.registerRules(mux)
 	a.registerDeployments(mux)
 	a.registerUsers(mux)

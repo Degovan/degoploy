@@ -18,6 +18,7 @@ import (
 	"github.com/degovan/degoploy/internal/deploy"
 	"github.com/degovan/degoploy/internal/project"
 	"github.com/degovan/degoploy/internal/realtime"
+	"github.com/degovan/degoploy/internal/secrets"
 	"github.com/degovan/degoploy/internal/store"
 )
 
@@ -50,7 +51,11 @@ func newTestServerWith(t *testing.T, configure func(cfg *config.Config, baseURL 
 	}
 	hub := realtime.NewHub()
 	projects := project.NewManager(st, dataDir)
-	deploys := deploy.NewService(st, projects, hub, 2)
+	box, err := secrets.New(make([]byte, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deploys := deploy.NewService(st, projects, hub, box, 2)
 	if err := deploys.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +64,7 @@ func newTestServerWith(t *testing.T, configure func(cfg *config.Config, baseURL 
 	a := api.New(api.Deps{
 		Config: &cfg, Store: st, Sessions: sessions,
 		Authz: &auth.Authorizer{}, Audit: audit.New(st), Version: "test",
-		Projects: projects, Deploys: deploys, Hub: hub, OIDC: sso,
+		Projects: projects, Deploys: deploys, Hub: hub, OIDC: sso, Secrets: box,
 	})
 	mux := http.NewServeMux()
 	a.Register(mux)

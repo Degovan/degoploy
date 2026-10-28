@@ -18,6 +18,7 @@ import (
 
 	"github.com/degovan/degoploy/internal/auth"
 	"github.com/degovan/degoploy/internal/config"
+	"github.com/degovan/degoploy/internal/secrets"
 	"github.com/degovan/degoploy/internal/server"
 	"github.com/degovan/degoploy/internal/store"
 )
@@ -114,8 +115,17 @@ func runServe(args []string) error {
 		slog.Warn("no users yet; create an admin with: degoploy user create --username admin --role admin")
 	}
 
+	key, err := secrets.LoadKey(cfg.SecretKey, cfg.SecretKeyPath())
+	if err != nil {
+		return fmt.Errorf("secret key: %w", err)
+	}
+	box, err := secrets.New(key)
+	if err != nil {
+		return fmt.Errorf("secret key: %w", err)
+	}
+
 	slog.Info("starting degoploy", "version", version)
-	return server.New(cfg, st, version).Run(ctx)
+	return server.New(cfg, st, box, version).Run(ctx)
 }
 
 func runUser(args []string) error {

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -170,5 +171,60 @@ func TestLastRuleMatches(t *testing.T) {
 	if len(got) != 2 || got[rules[0].ID].DeploymentID != latest || got[rules[1].ID].DeploymentID != tag ||
 		got[rules[0].ID].At.IsZero() {
 		t.Fatalf("LastRuleMatches = %+v, want rule %d → %d, rule %d → %d", got, rules[0].ID, latest, rules[1].ID, tag)
+	}
+}
+
+func TestVariables(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "a.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	p := &Project{PublicID: "a", Slug: "a", Name: "a", Provider: "github", RepoURL: "git@x:a/b.git",
+		WorkDir: "/srv/a", ScriptSource: ScriptManaged, WebhookSecret: "s", AutoPull: true, TimeoutSec: 60, Enabled: true}
+	if err := s.CreateProject(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	db := &Variable{ProjectID: p.ID, Name: "DB_PASSWORD", Value: "v1:sealed", Secret: true}
+	url := &Variable{ProjectID: p.ID, Name: "APP_URL", Value: "https://a.test"}
+	for _, v := range []*Variable{db, url} {
+		if err := s.CreateVariable(ctx, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.CreateVariable(ctx, &Variable{ProjectID: p.ID, Name: "APP_URL", Value: "x"}); !errors.Is(err, ErrDuplicate) {
+		t.Fatalf("duplicate name: err = %v, want ErrDuplicate", err)
+	}
+
+	list, err := s.ListVariables(ctx, p.ID)
+	if err != nil || len(list) != 2 || list[0].Name != "APP_URL" || !list[1].Secret || list[1].Value != "v1:sealed" {
+		t.Fatalf("ListVariables = %+v, %v", list, err)
+	}
+
+	url.Name, url.Value = "BASE_URL", "https://b.test"
+	if err := s.UpdateVariable(ctx, url); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.VariableByID(ctx, p.ID, url.ID); err != nil || got.Name != "BASE_URL" || got.Value != "https://b.test" {
+		t.Fatalf("after update: %+v, %v", got, err)
+	}
+	url.Name = "DB_PASSWORD"
+	if err := s.UpdateVariable(ctx, url); !errors.Is(err, ErrDuplicate) {
+		t.Fatalf("rename onto an existing name: err = %v, want ErrDuplicate", err)
+	}
+
+	if err := s.DeleteVariable(ctx, p.ID, db.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteVariable(ctx, p.ID, db.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second delete: err = %v, want ErrNotFound", err)
+	}
+	// Deleting the project removes its variables.
+	if err := s.DeleteProject(ctx, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ := s.ListVariables(ctx, p.ID); len(list) != 0 {
+		t.Fatalf("variables left after project delete: %+v", list)
 	}
 }

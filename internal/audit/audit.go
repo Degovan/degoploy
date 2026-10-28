@@ -27,6 +27,10 @@ const (
 	RuleDelete  = "rule.delete"
 	RuleReorder = "rule.reorder"
 
+	VariableCreate = "variable.create"
+	VariableUpdate = "variable.update"
+	VariableDelete = "variable.delete"
+
 	DeploymentManual   = "deployment.manual"
 	DeploymentCancel   = "deployment.cancel"
 	DeploymentRedeploy = "deployment.redeploy"

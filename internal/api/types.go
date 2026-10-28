@@ -155,6 +155,25 @@ type RuleInput struct {
 	ExtraEnv     map[string]string `json:"extra_env"`
 }
 
+// Variable is a project environment variable. Secret values are never sent:
+// Value is empty for secrets, and masked for users who may not manage secrets.
+type Variable struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	Value     string `json:"value"`
+	Secret    bool   `json:"secret"`
+	UpdatedAt string `json:"updated_at"`
+	UpdatedBy string `json:"updated_by"` // username; empty if the user was deleted
+}
+
+// VariableInput creates or updates a variable. On update, a nil Value keeps a
+// secret's stored value; plain variables always need one.
+type VariableInput struct {
+	Name   string  `json:"name"`
+	Value  *string `json:"value" tstype:"string,omitempty"`
+	Secret bool    `json:"secret"`
+}
+
 type RuleOrderRequest struct {
 	IDs []int64 `json:"ids"`
 }

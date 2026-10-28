@@ -14,6 +14,7 @@
 	import * as Alert from '#lib/components/ui/alert/index.js';
 	import { session } from '#lib/stores/session.svelte.js';
 	import { cn } from '#lib/utils.js';
+	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
 	import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
 	import GitBranchIcon from '@lucide/svelte/icons/git-branch';
 	import HistoryIcon from '@lucide/svelte/icons/history';
@@ -336,7 +337,15 @@
 					</section>
 				{/if}
 
-				<BuiltinVariables />
+				<BuiltinVariables>
+					<a
+						href={resolve('/(app)/projects/[id]/environment', { id: String(data.id) })}
+						class="-mx-2 -mb-2 flex items-center justify-between rounded-md px-2 py-1.5 text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground"
+					>
+						Project variables & secrets
+						<ArrowRightIcon class="size-3.5" />
+					</a>
+				</BuiltinVariables>
 			</div>
 		</div>
 	{/if}

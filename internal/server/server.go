@@ -17,6 +17,7 @@ import (
 	"github.com/degovan/degoploy/internal/deploy"
 	"github.com/degovan/degoploy/internal/project"
 	"github.com/degovan/degoploy/internal/realtime"
+	"github.com/degovan/degoploy/internal/secrets"
 	"github.com/degovan/degoploy/internal/store"
 	"github.com/degovan/degoploy/internal/web"
 )
@@ -33,11 +34,11 @@ type Server struct {
 // deployGrace is how long running deployments may finish during shutdown.
 const deployGrace = 60 * time.Second
 
-func New(cfg *config.Config, st *store.Store, version string) *Server {
+func New(cfg *config.Config, st *store.Store, box *secrets.Box, version string) *Server {
 	sessions := auth.NewSessions(st, cfg.SessionTTL, cfg.SecureCookies())
 	hub := realtime.NewHub()
 	projects := project.NewManager(st, cfg.DataDir)
-	deploys := deploy.NewService(st, projects, hub, cfg.MaxParallel)
+	deploys := deploy.NewService(st, projects, hub, box, cfg.MaxParallel)
 	var sso *auth.OIDCProvider
 	if cfg.OIDC.Enabled {
 		sso = auth.NewOIDCProvider(cfg.OIDC)
@@ -51,6 +52,7 @@ func New(cfg *config.Config, st *store.Store, version string) *Server {
 		Projects: projects,
 		Deploys:  deploys,
 		Hub:      hub,
+		Secrets:  box,
 		OIDC:     sso,
 		Version:  version,
 	})

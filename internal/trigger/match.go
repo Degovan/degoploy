@@ -147,18 +147,27 @@ func ValidateRule(r *store.TriggerRule) (string, string) {
 		return "skip_keyword", "must be at most 100 characters"
 	}
 	for k, v := range r.ExtraEnv {
-		if !validEnvName(k) {
-			return "extra_env", fmt.Sprintf("%q is not a valid variable name", k)
-		}
-		up := strings.ToUpper(k)
-		if strings.HasPrefix(up, "DEPLOY_") || strings.HasPrefix(up, "DEGOPLOY") || up == "GIT_SSH_COMMAND" {
-			return "extra_env", fmt.Sprintf("%s is set by degoploy and cannot be overridden", k)
+		if msg := CheckEnvName(k); msg != "" {
+			return "extra_env", msg
 		}
 		if len(v) > 4096 {
 			return "extra_env", fmt.Sprintf("value of %s is too long", k)
 		}
 	}
 	return "", ""
+}
+
+// CheckEnvName reports why k cannot be used as a deploy script variable, or ""
+// when it can. Names degoploy sets itself are reserved.
+func CheckEnvName(k string) string {
+	if !validEnvName(k) {
+		return fmt.Sprintf("%q is not a valid variable name", k)
+	}
+	up := strings.ToUpper(k)
+	if strings.HasPrefix(up, "DEPLOY_") || strings.HasPrefix(up, "DEGOPLOY") || up == "GIT_SSH_COMMAND" {
+		return fmt.Sprintf("%s is set by degoploy and cannot be overridden", k)
+	}
+	return ""
 }
 
 func validEnvName(s string) bool {

@@ -45,7 +45,8 @@
 	const ownLayouts = new Set([
 		'/(app)/projects/[id]/deployments/[did]',
 		'/(app)/projects/[id]/triggers',
-		'/(app)/projects/[id]/script'
+		'/(app)/projects/[id]/script',
+		'/(app)/projects/[id]/environment'
 	]);
 	const ownLayout = $derived(ownLayouts.has(page.route.id ?? ''));
 </script>

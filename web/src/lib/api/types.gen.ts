@@ -170,6 +170,27 @@ export interface RuleInput {
 	skip_keyword: string;
 	extra_env: { [key: string]: string };
 }
+/**
+ * Variable is a project environment variable. Secret values are never sent:
+ * Value is empty for secrets, and masked for users who may not manage secrets.
+ */
+export interface Variable {
+	id: number /* int64 */;
+	name: string;
+	value: string;
+	secret: boolean;
+	updated_at: string;
+	updated_by: string; // username; empty if the user was deleted
+}
+/**
+ * VariableInput creates or updates a variable. On update, a nil Value keeps a
+ * secret's stored value; plain variables always need one.
+ */
+export interface VariableInput {
+	name: string;
+	value?: string;
+	secret: boolean;
+}
 export interface RuleOrderRequest {
 	ids: number /* int64 */[];
 }
