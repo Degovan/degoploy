@@ -6,6 +6,8 @@ export type RealtimeMessage = {
 	type: 'deployment.updated' | 'webhook.received' | 'log.chunk' | 'log.end' | 'error';
 	project_id?: number;
 	offset?: number;
+	/** When a live log chunk was written (Unix ms). */
+	time?: number;
 	data?: unknown;
 };
 

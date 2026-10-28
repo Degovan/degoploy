@@ -5,7 +5,11 @@
 	import { cn } from '#lib/utils.js';
 
 	// Start → stages → End, as a horizontal track. End is reached once every stage is done.
-	let { stages, finished }: { stages: Stage[]; finished: boolean } = $props();
+	let {
+		stages,
+		finished,
+		class: className
+	}: { stages: Stage[]; finished: boolean; class?: string } = $props();
 
 	const timeTone = (s: Stage) =>
 		s.state === 'failed'
@@ -15,33 +19,40 @@
 				: 'text-muted-foreground';
 </script>
 
-<ol class="relative grid grid-cols-[auto_repeat(3,minmax(0,1fr))_auto] items-start gap-2">
-	<!-- The connecting line runs through the middle of the nodes. -->
-	<span class="absolute top-[2.375rem] right-3 left-3 h-px bg-border" aria-hidden="true"></span>
-	<li class="flex flex-col items-center gap-2.5">
-		<span class="text-xs text-muted-foreground">Start</span>
-		<span class="relative z-10 flex size-6 items-center justify-center">
-			<span class="size-3 rounded-full border-2 border-muted-foreground/60 bg-card"></span>
+<!-- Each item is label (16px), node (28px), time (16px); links sit on the node's center line. -->
+{#snippet link()}
+	<li class="mx-1.5 mt-[37.5px] h-px min-w-3 flex-1 bg-border" aria-hidden="true"></li>
+{/snippet}
+
+{#snippet edge(label: string, done: boolean)}
+	<li class="flex shrink-0 flex-col items-center gap-2">
+		<span class="text-xs leading-4 text-muted-foreground">{label}</span>
+		<span class="flex size-7 items-center justify-center">
+			<span
+				class={cn(
+					'size-2.5 rounded-full border',
+					done ? 'border-foreground/70' : 'border-muted-foreground'
+				)}
+			></span>
 		</span>
+		<span class="h-4"></span>
 	</li>
+{/snippet}
+
+<ol class={cn('flex items-start', className)}>
+	{@render edge('Start', false)}
 	{#each stages as s (s.key)}
-		<li class="flex min-w-0 flex-col items-center gap-2.5">
-			<span class="max-w-full truncate text-xs font-medium" title={s.label}>{s.label}</span>
-			<StageNode state={s.state} />
-			<span class={cn('font-mono text-xs tabular-nums', timeTone(s))}>
+		{@render link()}
+		<li class="flex max-w-40 min-w-0 flex-col items-center gap-2">
+			<span class="max-w-full truncate text-xs leading-4 font-medium" title={s.label}
+				>{s.label}</span
+			>
+			<span class="flex size-7 items-center justify-center"><StageNode state={s.state} /></span>
+			<span class={cn('font-mono text-xs leading-4 tabular-nums', timeTone(s))}>
 				{s.ms === null ? (s.state === 'skipped' ? 'skipped' : ' ') : formatStage(s.ms)}
 			</span>
 		</li>
 	{/each}
-	<li class="flex flex-col items-center gap-2.5">
-		<span class="text-xs text-muted-foreground">End</span>
-		<span class="relative z-10 flex size-6 items-center justify-center">
-			<span
-				class={cn(
-					'size-3 rounded-full border-2 bg-card',
-					finished ? 'border-foreground/70' : 'border-muted-foreground/60'
-				)}
-			></span>
-		</span>
-	</li>
+	{@render link()}
+	{@render edge('End', finished)}
 </ol>

@@ -183,6 +183,10 @@ cat app.txt`, 0)
 	if d.ScriptStartedAt == nil || d.ScriptStartedAt.Before(*d.StartedAt) || d.FinishedAt.Before(*d.ScriptStartedAt) || d.Error != "" {
 		t.Fatalf("stages: started %v script %v finished %v error %q", d.StartedAt, d.ScriptStartedAt, d.FinishedAt, d.Error)
 	}
+	revs, _ := f.store.ListScriptRevisions(context.Background(), p.ID, 1)
+	if d.ScriptRevisionID == nil || len(revs) != 1 || *d.ScriptRevisionID != revs[0].ID {
+		t.Fatalf("script revision = %v, want the current revision", d.ScriptRevisionID)
+	}
 	got, _ := os.ReadFile(filepath.Join(p.WorkDir, "deployed.txt"))
 	want := "branch=main commit=" + sha + " env=production rule=prod secret=none\n"
 	if string(got) != want {
@@ -293,6 +297,7 @@ func TestLogStreamMatchesFile(t *testing.T) {
 			var m struct {
 				Type   string
 				Offset int64
+				Time   int64
 				Data   []byte
 			}
 			json.Unmarshal(b, &m)
@@ -303,6 +308,9 @@ func TestLogStreamMatchesFile(t *testing.T) {
 					t.Errorf("chunk at offset %d, have %d bytes", m.Offset, stream.Len())
 				}
 				stream.Write(m.Data)
+				if m.Time == 0 {
+					t.Errorf("live chunk at offset %d has no time", m.Offset)
+				}
 			case realtime.TypeLogEnd:
 				ended = true
 			}
@@ -324,7 +332,18 @@ func TestLogStreamMatchesFile(t *testing.T) {
 	if !ended {
 		t.Fatal("no log.end message")
 	}
-	if file := readLog(t, d); stream.String() != file {
+	file := readLog(t, d)
+	if stream.String() != file {
 		t.Fatalf("streamed %d bytes, file has %d", stream.Len(), len(file))
+	}
+
+	times, err := ReadLogTimes(d.LogPath)
+	if err != nil || len(times) == 0 || times[0][0] != 0 {
+		t.Fatalf("times = %v, err %v; want entries starting at offset 0", times, err)
+	}
+	for i, e := range times {
+		if e[0] >= int64(len(file)) || e[1] < d.StartedAt.UnixMilli()-1000 || i > 0 && (e[0] <= times[i-1][0] || e[1] < times[i-1][1]) {
+			t.Fatalf("entry %d = %v is out of order or range (log %d bytes)", i, e, len(file))
+		}
 	}
 }

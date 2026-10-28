@@ -19,6 +19,7 @@
 	const DOCS_URL = 'https://github.com/degovan/degoploy#readme';
 
 	const projectId = $derived(page.params.id ? Number(page.params.id) : null);
+	const deploymentId = $derived(page.params.did ? Number(page.params.did) : null);
 	const isNewProject = $derived(page.route.id === '/(app)/projects/new');
 
 	const projects = createQuery(() => ({
@@ -138,6 +139,10 @@
 						{/if}
 					</DropdownMenu.Content>
 				</DropdownMenu.Root>
+				{#if deploymentId !== null}
+					{@render slash()}
+					<span class="shrink-0 font-mono text-sm font-medium">#{deploymentId}</span>
+				{/if}
 			{:else if isNewProject}
 				{@render slash()}
 				<span class="truncate text-sm font-medium">New Project</span>

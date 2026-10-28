@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -8,12 +9,45 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/degovan/degoploy/internal/realtime"
 )
 
 // maxLogSize caps one deployment's log; later output is dropped (the process keeps running).
 const maxLogSize = 10 << 20
+
+// timeResolution merges write times: a write this close to the last recorded one
+// shares its entry, which keeps the times file small for chatty output.
+const timeResolution = 100 * time.Millisecond
+
+// LogTimesPath is the file next to a deployment log that records when output
+// arrived: one "offset unixms" line per write, so every log line gets a time.
+func LogTimesPath(logPath string) string { return logPath + ".times" }
+
+// ReadLogTimes returns the [offset, unix ms] entries recorded for the log at
+// logPath, oldest first; none for logs written before degoploy kept them.
+func ReadLogTimes(logPath string) ([][2]int64, error) {
+	b, err := os.ReadFile(LogTimesPath(logPath))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := [][2]int64{}
+	for line := range strings.Lines(string(b)) {
+		var off, ms int64
+		// A line still being written has no newline yet.
+		if !strings.HasSuffix(line, "\n") {
+			break
+		}
+		if _, err := fmt.Sscan(line, &off, &ms); err == nil {
+			out = append(out, [2]int64{off, ms})
+		}
+	}
+	return out, nil
+}
 
 // logSink writes deployment output to its log file and streams each chunk with
 // its byte offset, so clients can resume or de-duplicate precisely.
@@ -25,6 +59,8 @@ type logSink struct {
 
 	mu        sync.Mutex
 	f         *os.File
+	times     *os.File // nil if the times file could not be created
+	lastTime  int64
 	size      int64
 	truncated bool
 }
@@ -38,8 +74,9 @@ func newLogSink(dir string, deploymentID, projectID int64, hub *realtime.Hub) (*
 	if err != nil {
 		return nil, err
 	}
+	times, _ := os.OpenFile(LogTimesPath(path), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	return &logSink{
-		path: path, topic: realtime.DeploymentLogTopic(deploymentID), projectID: projectID, hub: hub, f: f,
+		path: path, topic: realtime.DeploymentLogTopic(deploymentID), projectID: projectID, hub: hub, f: f, times: times,
 	}, nil
 }
 
@@ -56,10 +93,15 @@ func (l *logSink) Write(p []byte) (int, error) {
 			ansiYellow, maxLogSize>>20, ansiReset))...)
 		l.truncated = true
 	}
+	now := time.Now().UnixMilli()
 	n, _ := l.f.Write(chunk)
 	if n > 0 {
+		if l.times != nil && (l.size == 0 || now-l.lastTime >= timeResolution.Milliseconds()) {
+			fmt.Fprintf(l.times, "%d %d\n", l.size, now)
+			l.lastTime = now
+		}
 		l.hub.Publish(realtime.Message{
-			Topic: l.topic, Type: realtime.TypeLogChunk, ProjectID: l.projectID, Offset: l.size, Data: chunk[:n],
+			Topic: l.topic, Type: realtime.TypeLogChunk, ProjectID: l.projectID, Offset: l.size, Time: now, Data: chunk[:n],
 		})
 		l.size += int64(n)
 	}
@@ -81,6 +123,10 @@ func (l *logSink) close() {
 	}
 	l.f.Close()
 	l.f = nil
+	if l.times != nil {
+		l.times.Close()
+		l.times = nil
+	}
 	l.hub.Publish(realtime.Message{Topic: l.topic, Type: realtime.TypeLogEnd, ProjectID: l.projectID, Offset: l.size})
 }
 

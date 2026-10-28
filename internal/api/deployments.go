@@ -27,6 +27,8 @@ func (a *API) registerDeployments(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/projects/{id}/deployments", h(a.manualDeploy))
 	mux.Handle("GET /api/v1/deployments/{did}", h(a.getDeployment))
 	mux.Handle("GET /api/v1/deployments/{did}/log", h(a.deploymentLog))
+	mux.Handle("GET /api/v1/deployments/{did}/log/times", h(a.deploymentLogTimes))
+	mux.Handle("GET /api/v1/deployments/{did}/neighbors", h(a.deploymentNeighbors))
 	mux.Handle("POST /api/v1/deployments/{did}/cancel", h(a.cancelDeployment))
 	mux.Handle("POST /api/v1/deployments/{did}/redeploy", h(a.redeploy))
 }
@@ -186,6 +188,38 @@ func (a *API) deploymentLog(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, "", time.Time{}, f)
 }
 
+func (a *API) deploymentLogTimes(w http.ResponseWriter, r *http.Request) {
+	d, _, ok := a.loadDeployment(w, r, auth.ActionProjectView)
+	if !ok {
+		return
+	}
+	out := LogTimes{Entries: [][2]int64{}}
+	if d.LogPath != "" {
+		entries, err := deploy.ReadLogTimes(d.LogPath)
+		if err != nil {
+			httpx.InternalError(w, r, err)
+			return
+		}
+		if entries != nil {
+			out.Entries = entries
+		}
+	}
+	httpx.JSON(w, http.StatusOK, out)
+}
+
+func (a *API) deploymentNeighbors(w http.ResponseWriter, r *http.Request) {
+	d, _, ok := a.loadDeployment(w, r, auth.ActionProjectView)
+	if !ok {
+		return
+	}
+	prev, next, err := a.store.DeploymentNeighbors(r.Context(), d.ProjectID, d.ID)
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, DeploymentNeighbors{Prev: prev, Next: next})
+}
+
 func (a *API) cancelDeployment(w http.ResponseWriter, r *http.Request) {
 	d, ident, ok := a.loadDeployment(w, r, auth.ActionProjectDeploy)
 	if !ok {
@@ -253,7 +287,8 @@ func toDeployment(v *store.DeploymentView) Deployment {
 		ID: v.ID, ProjectID: v.ProjectID, RuleID: v.RuleID, RuleName: v.RuleName, Trigger: v.Trigger,
 		TriggeredBy: v.TriggeredByName, Ref: v.Ref, CommitSHA: v.CommitSHA, CommitMessage: v.CommitMessage,
 		Author: v.Author, Status: v.Status, ExitCode: v.ExitCode, Error: v.Error, AutoPull: v.AutoPull,
-		QueuedAt: msTime(v.QueuedAt), StartedAt: msTimePtr(v.StartedAt),
+		ScriptRevisionID: v.ScriptRevisionID,
+		QueuedAt:         msTime(v.QueuedAt), StartedAt: msTimePtr(v.StartedAt),
 		ScriptStartedAt: msTimePtr(v.ScriptStartedAt), FinishedAt: msTimePtr(v.FinishedAt),
 	}
 }

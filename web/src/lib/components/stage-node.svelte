@@ -9,19 +9,22 @@
 
 	let { state, class: className }: { state: StageState; class?: string } = $props();
 
+	// The stage that needs attention (failed or running) is drawn larger, with a ring.
 	const tone: Record<StageState, string> = {
-		success: 'border-emerald-500/60 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
-		failed: 'border-red-500/70 bg-red-500/15 text-red-600 dark:text-red-400',
-		running: 'border-amber-400/70 bg-amber-400/15 text-amber-600 dark:text-amber-300',
-		canceled: 'border-zinc-500/50 bg-muted text-muted-foreground',
-		skipped: 'border-dashed border-zinc-500/50 text-muted-foreground',
-		pending: 'border-zinc-500/50 text-muted-foreground'
+		success: 'size-[22px] bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
+		failed:
+			'size-7 border border-red-500 bg-red-500/15 text-red-600 dark:border-red-400 dark:text-red-400',
+		running:
+			'size-7 border border-amber-500 bg-amber-400/15 text-amber-600 dark:border-amber-400 dark:text-amber-300',
+		canceled: 'size-[22px] bg-muted text-muted-foreground',
+		skipped: 'size-[22px] border border-dashed border-muted-foreground/50 text-muted-foreground',
+		pending: 'size-[22px] border border-muted-foreground/40 text-muted-foreground'
 	};
 </script>
 
 <span
 	class={cn(
-		'relative z-10 flex size-6 items-center justify-center rounded-full border bg-card [&_svg]:size-3.5',
+		'flex shrink-0 items-center justify-center rounded-full [&_svg]:size-[13px]',
 		tone[state],
 		className
 	)}

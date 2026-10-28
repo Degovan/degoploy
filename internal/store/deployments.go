@@ -43,18 +43,22 @@ type Deployment struct {
 	Error string
 	// AutoPull records whether the run updated the repository; nil before it starts.
 	AutoPull *bool
+	// ScriptRevisionID is the managed script revision the run executed; nil for
+	// repository scripts and runs that never reached the script.
+	ScriptRevisionID *int64
 }
 
 const deploymentCols = `id, project_id, rule_id, trigger, triggered_by, ref, commit_sha, commit_message,
-	author, status, exit_code, log_path, queued_at, started_at, script_started_at, finished_at, error, auto_pull`
+	author, status, exit_code, log_path, queued_at, started_at, script_started_at, finished_at, error, auto_pull,
+	script_revision_id`
 
 func scanDeployment(row interface{ Scan(...any) error }) (*Deployment, error) {
 	var d Deployment
-	var rule, by, exit sql.NullInt64
+	var rule, by, exit, rev sql.NullInt64
 	var started, scriptStarted, finished sql.NullTime
 	var autoPull sql.NullBool
 	err := row.Scan(&d.ID, &d.ProjectID, &rule, &d.Trigger, &by, &d.Ref, &d.CommitSHA, &d.CommitMessage,
-		&d.Author, &d.Status, &exit, &d.LogPath, &d.QueuedAt, &started, &scriptStarted, &finished, &d.Error, &autoPull)
+		&d.Author, &d.Status, &exit, &d.LogPath, &d.QueuedAt, &started, &scriptStarted, &finished, &d.Error, &autoPull, &rev)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -82,6 +86,9 @@ func scanDeployment(row interface{ Scan(...any) error }) (*Deployment, error) {
 	}
 	if autoPull.Valid {
 		d.AutoPull = &autoPull.Bool
+	}
+	if rev.Valid {
+		d.ScriptRevisionID = &rev.Int64
 	}
 	return &d, nil
 }
@@ -116,7 +123,7 @@ type DeploymentView struct {
 
 const deploymentViewCols = `d.id, d.project_id, d.rule_id, d.trigger, d.triggered_by, d.ref, d.commit_sha,
 	d.commit_message, d.author, d.status, d.exit_code, d.log_path, d.queued_at, d.started_at, d.script_started_at,
-	d.finished_at, d.error, d.auto_pull, COALESCE(r.name, ''), COALESCE(u.username, '')`
+	d.finished_at, d.error, d.auto_pull, d.script_revision_id, COALESCE(r.name, ''), COALESCE(u.username, '')`
 
 const deploymentViewFrom = ` FROM deployments d
 	LEFT JOIN trigger_rules r ON r.id = d.rule_id
@@ -124,12 +131,12 @@ const deploymentViewFrom = ` FROM deployments d
 
 func scanDeploymentView(row interface{ Scan(...any) error }) (*DeploymentView, error) {
 	var v DeploymentView
-	var rule, by, exit sql.NullInt64
+	var rule, by, exit, rev sql.NullInt64
 	var started, scriptStarted, finished sql.NullTime
 	var autoPull sql.NullBool
 	err := row.Scan(&v.ID, &v.ProjectID, &rule, &v.Trigger, &by, &v.Ref, &v.CommitSHA, &v.CommitMessage,
 		&v.Author, &v.Status, &exit, &v.LogPath, &v.QueuedAt, &started, &scriptStarted, &finished, &v.Error,
-		&autoPull, &v.RuleName, &v.TriggeredByName)
+		&autoPull, &rev, &v.RuleName, &v.TriggeredByName)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -158,6 +165,9 @@ func scanDeploymentView(row interface{ Scan(...any) error }) (*DeploymentView, e
 	if autoPull.Valid {
 		v.AutoPull = &autoPull.Bool
 	}
+	if rev.Valid {
+		v.ScriptRevisionID = &rev.Int64
+	}
 	return &v, nil
 }
 
@@ -185,6 +195,26 @@ func (s *Store) ListDeployments(ctx context.Context, projectID, beforeID int64, 
 		out = append(out, v)
 	}
 	return out, rows.Err()
+}
+
+// DeploymentNeighbors returns the ids of the project's deployments just before
+// and after id, or nil at either end.
+func (s *Store) DeploymentNeighbors(ctx context.Context, projectID, id int64) (prev, next *int64, err error) {
+	var p, n sql.NullInt64
+	err = s.db.QueryRowContext(ctx, `SELECT
+		(SELECT MAX(id) FROM deployments WHERE project_id = ? AND id < ?),
+		(SELECT MIN(id) FROM deployments WHERE project_id = ? AND id > ?)`,
+		projectID, id, projectID, id).Scan(&p, &n)
+	if err != nil {
+		return nil, nil, err
+	}
+	if p.Valid {
+		prev = &p.Int64
+	}
+	if n.Valid {
+		next = &n.Int64
+	}
+	return prev, next, nil
 }
 
 // LatestDeployments returns the newest deployment of every project that has one.
@@ -270,10 +300,14 @@ func (s *Store) StartDeployment(ctx context.Context, id int64, logPath string, a
 	return n == 1, nil
 }
 
-// MarkScriptStarted records that the repository is ready and the deploy script is starting.
-func (s *Store) MarkScriptStarted(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE deployments SET script_started_at = ?
-		WHERE id = ? AND status = ?`, now(), id, DeployRunning)
+// MarkScriptStarted records that the repository is ready and the deploy script is
+// starting. For a managed script it also records the current (newest) revision,
+// which is what the script file on disk holds.
+func (s *Store) MarkScriptStarted(ctx context.Context, id int64, managed bool) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE deployments SET script_started_at = ?,
+		script_revision_id = CASE WHEN ? THEN
+			(SELECT MAX(r.id) FROM script_revisions r WHERE r.project_id = deployments.project_id) END
+		WHERE id = ? AND status = ?`, now(), managed, id, DeployRunning)
 	return err
 }
 

@@ -268,6 +268,7 @@ func (s *Service) execute(id int64) {
 	if err != nil || !started {
 		sink.close()
 		os.Remove(sink.path)
+		os.Remove(LogTimesPath(sink.path))
 		return
 	}
 	s.notify(id)
@@ -279,6 +280,7 @@ func (s *Service) execute(id int64) {
 	if paths, err := s.store.PruneDeployments(context.Background(), p.ID, keepDeployments); err == nil {
 		for _, path := range paths {
 			os.Remove(path)
+			os.Remove(LogTimesPath(path))
 		}
 	}
 }

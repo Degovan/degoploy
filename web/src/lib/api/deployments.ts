@@ -1,12 +1,15 @@
 import type { QueryClient } from '@tanstack/svelte-query';
 import { api } from './client.js';
-import type { Deployment } from './types.gen.js';
+import type { Deployment, DeploymentNeighbors, LogTimes } from './types.gen.js';
 
 export const deploymentKeys = {
 	list: (projectId: number) => ['projects', projectId, 'deployments'] as const,
 	recent: ['deployments', 'recent'] as const,
 	active: ['deployments', 'recent', 'active'] as const,
-	detail: (id: number) => ['deployments', id] as const
+	detail: (id: number) => ['deployments', id] as const,
+	// Under the project's list key, so a new deployment refreshes it.
+	neighbors: (projectId: number, id: number) =>
+		['projects', projectId, 'deployments', 'neighbors', id] as const
 };
 
 export const deploymentsApi = {
@@ -20,6 +23,8 @@ export const deploymentsApi = {
 		api.post<Deployment>(`/projects/${projectId}/deployments`, { ref }),
 	cancel: (id: number) => api.post<Deployment>(`/deployments/${id}/cancel`),
 	redeploy: (id: number) => api.post<Deployment>(`/deployments/${id}/redeploy`),
+	neighbors: (id: number) => api.get<DeploymentNeighbors>(`/deployments/${id}/neighbors`),
+	logTimes: (id: number) => api.get<LogTimes>(`/deployments/${id}/log/times`),
 	logUrl: (id: number) => `/api/v1/deployments/${id}/log?download=1`
 };
 

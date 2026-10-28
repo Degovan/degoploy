@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createQuery } from '@tanstack/svelte-query';
+	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import { ApiError } from '#lib/api/client.js';
 	import { projectKeys, projectsApi } from '#lib/api/projects.js';
@@ -40,6 +41,8 @@
 	const links = $derived(
 		project.data ? providerLinks(project.data.provider, project.data.repo_url) : null
 	);
+	// A deployment page has its own header and layout.
+	const ownLayout = $derived(page.route.id === '/(app)/projects/[id]/deployments/[did]');
 </script>
 
 <svelte:head>
@@ -68,6 +71,8 @@
 			</Button>
 		</div>
 	</div>
+{:else if ownLayout}
+	{@render children()}
 {:else}
 	{@const p = project.data}
 	<section class="border-b">

@@ -20,7 +20,9 @@ type Message struct {
 	Type      string `json:"type"`
 	ProjectID int64  `json:"project_id,omitempty"`
 	Offset    int64  `json:"offset,omitempty"`
-	Data      any    `json:"data,omitempty"`
+	// Time is when a live log chunk was written (Unix ms); backfilled chunks have none.
+	Time int64 `json:"time,omitempty"`
+	Data any   `json:"data,omitempty"`
 }
 
 const (

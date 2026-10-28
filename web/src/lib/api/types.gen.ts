@@ -227,6 +227,26 @@ export interface Deployment {
 	 * it starts, and for deployments recorded before degoploy kept it.
 	 */
 	auto_pull: boolean | null;
+	/**
+	 * ScriptRevisionID: the managed script revision the run executed; null for
+	 * repository scripts, runs that never reached the script and older deployments.
+	 */
+	script_revision_id: number | null;
+}
+/**
+ * DeploymentNeighbors are the ids of the same project's previous and next deployments.
+ */
+export interface DeploymentNeighbors {
+	prev: number | null;
+	next: number | null;
+}
+/**
+ * LogTimes says when deployment output arrived: each entry is [byte offset, Unix ms],
+ * and a log line was written at the time of the last entry at or before its start.
+ * Empty for deployments recorded before degoploy kept write times.
+ */
+export interface LogTimes {
+	entries: number[][];
 }
 /**
  * DeployRequest starts a manual deployment. Ref is a branch name or a full ref

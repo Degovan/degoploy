@@ -52,7 +52,7 @@ func (s *Service) run(ctx context.Context, d *store.Deployment, p *store.Project
 	if err != nil {
 		return s.outcome(ctx, w, start, err)
 	}
-	if err := s.store.MarkScriptStarted(context.WithoutCancel(ctx), d.ID); err == nil {
+	if err := s.store.MarkScriptStarted(context.WithoutCancel(ctx), d.ID, p.ScriptSource == store.ScriptManaged); err == nil {
 		s.notify(d.ID)
 	}
 	step(w, "Running %s", script)

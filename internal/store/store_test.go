@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
@@ -80,5 +81,52 @@ func TestDeploymentHealth(t *testing.T) {
 	}
 	if recent, _ := s.RecentDeployments(ctx, 10, false); len(recent) != 7 || recent[1].AutoPull == nil || !*recent[1].AutoPull {
 		t.Fatalf("recent = %d deployments, auto_pull %v", len(recent), recent[1].AutoPull)
+	}
+}
+
+func TestDeploymentNeighbors(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "a.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	newProject := func(slug string) *Project {
+		p := &Project{PublicID: slug, Slug: slug, Name: slug, Provider: "github", RepoURL: "git@x:a/b.git",
+			WorkDir: "/srv/" + slug, ScriptSource: ScriptManaged, WebhookSecret: "s", AutoPull: true, TimeoutSec: 60, Enabled: true}
+		if err := s.CreateProject(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	a, b := newProject("a"), newProject("b")
+	// Interleaved: a's deployments are 1, 3, 4; b's is 2.
+	var ids []int64
+	for _, p := range []*Project{a, b, a, a} {
+		d := &Deployment{ProjectID: p.ID, Trigger: TriggerManual}
+		if err := s.CreateDeployment(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, d.ID)
+	}
+	str := func(p *int64) string {
+		if p == nil {
+			return "nil"
+		}
+		return strconv.FormatInt(*p, 10)
+	}
+	for _, c := range []struct {
+		project, id int64
+		prev, next  string
+	}{
+		{a.ID, ids[0], "nil", str(&ids[2])},
+		{a.ID, ids[2], str(&ids[0]), str(&ids[3])},
+		{a.ID, ids[3], str(&ids[2]), "nil"},
+		{b.ID, ids[1], "nil", "nil"},
+	} {
+		prev, next, err := s.DeploymentNeighbors(ctx, c.project, c.id)
+		if err != nil || str(prev) != c.prev || str(next) != c.next {
+			t.Errorf("neighbors of %d = %s, %s (%v), want %s, %s", c.id, str(prev), str(next), err, c.prev, c.next)
+		}
 	}
 }

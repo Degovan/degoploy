@@ -210,6 +210,22 @@ type Deployment struct {
 	// AutoPull: whether the run updated the repository before the script; null until
 	// it starts, and for deployments recorded before degoploy kept it.
 	AutoPull *bool `json:"auto_pull" tstype:"boolean | null,required"`
+	// ScriptRevisionID: the managed script revision the run executed; null for
+	// repository scripts, runs that never reached the script and older deployments.
+	ScriptRevisionID *int64 `json:"script_revision_id" tstype:"number | null,required"`
+}
+
+// DeploymentNeighbors are the ids of the same project's previous and next deployments.
+type DeploymentNeighbors struct {
+	Prev *int64 `json:"prev" tstype:"number | null,required"`
+	Next *int64 `json:"next" tstype:"number | null,required"`
+}
+
+// LogTimes says when deployment output arrived: each entry is [byte offset, Unix ms],
+// and a log line was written at the time of the last entry at or before its start.
+// Empty for deployments recorded before degoploy kept write times.
+type LogTimes struct {
+	Entries [][2]int64 `json:"entries" tstype:"number[][]"`
 }
 
 // DeployRequest starts a manual deployment. Ref is a branch name or a full ref
