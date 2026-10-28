@@ -36,10 +36,19 @@ func (a *API) listRules(w http.ResponseWriter, r *http.Request) {
 		httpx.InternalError(w, r, err)
 		return
 	}
+	matches, err := a.store.LastRuleMatches(r.Context(), p.ID)
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
 	reveal := a.authz.Can(r.Context(), ident.User, auth.ActionProjectEdit, p.ID)
 	out := make([]TriggerRule, 0, len(rules))
 	for _, rule := range rules {
-		out = append(out, toRule(rule, reveal))
+		tr := toRule(rule, reveal)
+		if m, ok := matches[rule.ID]; ok {
+			tr.LastMatch = &RuleMatch{DeploymentID: m.DeploymentID, At: msTime(m.At)}
+		}
+		out = append(out, tr)
 	}
 	httpx.JSON(w, http.StatusOK, out)
 }

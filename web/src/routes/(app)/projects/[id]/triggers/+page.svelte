@@ -1,37 +1,33 @@
 <script lang="ts">
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
+	import { resolve } from '$app/paths';
 	import { toast } from 'svelte-sonner';
-	import { ApiError, errorMessage } from '#lib/api/client.js';
+	import { errorMessage } from '#lib/api/client.js';
 	import { ruleKeys, rulesApi } from '#lib/api/rules.js';
-	import type {
-		RuleInput,
-		RuleTestResponse,
-		TriggerEvent,
-		TriggerRule
-	} from '#lib/api/types.gen.js';
-	import ConfirmButton from '#lib/components/confirm-button.svelte';
+	import type { RuleInput, TriggerRule } from '#lib/api/types.gen.js';
+	import PageHeader from '#lib/components/page-header.svelte';
 	import RuleDialog, { emptyRule, ruleToInput } from '#lib/components/rule-dialog.svelte';
+	import RuleTester from '#lib/components/rule-tester.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
-	import { Badge } from '#lib/components/ui/badge/index.js';
-	import { Input } from '#lib/components/ui/input/index.js';
-	import { Label } from '#lib/components/ui/label/index.js';
 	import { Switch } from '#lib/components/ui/switch/index.js';
-	import { Textarea } from '#lib/components/ui/textarea/index.js';
 	import { Skeleton } from '#lib/components/ui/skeleton/index.js';
-	import * as Card from '#lib/components/ui/card/index.js';
 	import * as Alert from '#lib/components/ui/alert/index.js';
-	import * as RadioGroup from '#lib/components/ui/radio-group/index.js';
+	import * as AlertDialog from '#lib/components/ui/alert-dialog/index.js';
+	import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.js';
 	import { session } from '#lib/stores/session.svelte.js';
+	import { shortAgo } from '#lib/time.js';
 	import { cn } from '#lib/utils.js';
 	import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
 	import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
 	import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
-	import CircleCheckIcon from '@lucide/svelte/icons/circle-check';
-	import CircleMinusIcon from '@lucide/svelte/icons/circle-minus';
-	import FlaskConicalIcon from '@lucide/svelte/icons/flask-conical';
+	import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
+	import GitBranchIcon from '@lucide/svelte/icons/git-branch';
+	import GripVerticalIcon from '@lucide/svelte/icons/grip-vertical';
+	import InfoIcon from '@lucide/svelte/icons/info';
 	import LoaderIcon from '@lucide/svelte/icons/loader-circle';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import PlusIcon from '@lucide/svelte/icons/plus';
+	import TagIcon from '@lucide/svelte/icons/tag';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import ZapIcon from '@lucide/svelte/icons/zap';
 	import type { PageProps } from './$types';
@@ -72,18 +68,13 @@
 	async function toggle(r: TriggerRule, enabled: boolean) {
 		try {
 			await rulesApi.update(data.id, r.id, { ...ruleToInput(r), enabled });
-			await refresh();
 		} catch (err) {
 			toast.error(errorMessage(err));
-			await refresh();
 		}
+		await refresh();
 	}
 
-	async function move(index: number, delta: -1 | 1) {
-		const list = [...(rules.data ?? [])];
-		const target = index + delta;
-		if (target < 0 || target >= list.length) return;
-		[list[index], list[target]] = [list[target]!, list[index]!];
+	async function saveOrder(list: TriggerRule[]) {
 		try {
 			setRules(
 				await rulesApi.reorder(
@@ -96,236 +87,308 @@
 		}
 	}
 
-	async function remove(r: TriggerRule) {
+	function move(index: number, delta: -1 | 1) {
+		const list = [...(rules.data ?? [])];
+		const target = index + delta;
+		if (target < 0 || target >= list.length) return;
+		[list[index], list[target]] = [list[target]!, list[index]!];
+		saveOrder(list);
+	}
+
+	// Drag to reorder: rows become draggable while their grip is held, the list is
+	// rearranged live while dragging and saved on drop.
+	let armed = $state<number | null>(null);
+	let dragging = $state<number | null>(null);
+	let preview = $state<TriggerRule[] | null>(null);
+	let dropped = false;
+	const list = $derived(preview ?? rules.data ?? []);
+
+	function dragStart(e: DragEvent, r: TriggerRule) {
+		if (!e.dataTransfer) return;
+		dragging = r.id;
+		dropped = false;
+		preview = [...(rules.data ?? [])];
+		e.dataTransfer.effectAllowed = 'move';
+		e.dataTransfer.setData('text/plain', r.name);
+	}
+
+	function dragOver(e: DragEvent, r: TriggerRule) {
+		if (dragging === null || !preview) return;
+		e.preventDefault();
+		if (r.id === dragging) return;
+		const from = preview.findIndex((x) => x.id === dragging);
+		const to = preview.findIndex((x) => x.id === r.id);
+		const next = [...preview];
+		next.splice(to, 0, ...next.splice(from, 1));
+		preview = next;
+	}
+
+	async function dragEnd() {
+		const order = preview;
+		const before = rules.data ?? [];
+		armed = dragging = null;
+		if (dropped && order && order.some((r, i) => r.id !== before[i]?.id)) {
+			await saveOrder(order);
+		}
+		preview = null;
+	}
+
+	function gripKey(e: KeyboardEvent, index: number) {
+		if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+			e.preventDefault();
+			move(index, e.key === 'ArrowUp' ? -1 : 1);
+		}
+	}
+
+	// Delete confirmation, opened from a row's menu. `deleting` outlives the dialog's
+	// close animation so its title doesn't go blank while fading out.
+	let deleting = $state<TriggerRule | null>(null);
+	let deleteOpen = $state(false);
+	let deleteBusy = $state(false);
+	async function remove() {
+		const r = deleting;
+		if (!r) return;
+		deleteBusy = true;
 		try {
 			await rulesApi.remove(data.id, r.id);
 			await refresh();
 			toast.success(`Rule "${r.name}" deleted`);
+			deleteOpen = false;
 		} catch (err) {
 			toast.error(errorMessage(err));
-		}
-	}
-
-	// Simulator
-	let sim = $state({ event: 'push' as TriggerEvent, ref: 'main', message: '', files: '' });
-	let simResult = $state<RuleTestResponse | null>(null);
-	let simError = $state('');
-	let simRunning = $state(false);
-
-	async function simulate(e: SubmitEvent) {
-		e.preventDefault();
-		simRunning = true;
-		simError = '';
-		try {
-			simResult = await rulesApi.test(data.id, {
-				event: sim.event,
-				ref: sim.ref,
-				message: sim.message,
-				files: sim.files.split('\n')
-			});
-		} catch (err) {
-			simResult = null;
-			simError = err instanceof ApiError ? err.message : errorMessage(err);
 		} finally {
-			simRunning = false;
+			deleteBusy = false;
 		}
 	}
+
+	function conditions(r: TriggerRule): [string, string][] {
+		const out: [string, string][] = [[r.event === 'tag' ? 'tag' : 'branch', r.ref_pattern]];
+		if (r.skip_keyword) out.push(['skip', r.skip_keyword]);
+		if (r.paths_include.length) out.push(['only', r.paths_include.join(', ')]);
+		if (r.paths_exclude.length) out.push(['ignore', r.paths_exclude.join(', ')]);
+		const env = Object.entries(r.extra_env);
+		if (env.length) out.push(['env', env.map(([k, v]) => `${k}=${v}`).join(', ')]);
+		return out;
+	}
+
+	const cols =
+		'grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-3 md:grid-cols-[56px_minmax(0,1fr)_minmax(0,1fr)_48px_64px] md:gap-x-4';
 </script>
 
-<div class="grid gap-6 xl:grid-cols-[1fr_22rem]">
-	<Card.Root class="min-w-0">
-		<Card.Header>
-			<Card.Title>Trigger rules</Card.Title>
-			<Card.Description>
-				Evaluated top to bottom; the first rule that matches a push starts a deployment.
-			</Card.Description>
-			{#if canEdit}
-				<Card.Action>
-					<Button size="sm" onclick={openNew}>
-						<PlusIcon />
-						Add rule
-					</Button>
-				</Card.Action>
-			{/if}
-		</Card.Header>
-		<Card.Content class="flex flex-col gap-3">
-			{#if rules.isPending}
-				<Skeleton class="h-24 w-full" />
-			{:else if rules.isError}
+<PageHeader
+	title="Trigger Rules"
+	description="A push deploys when it matches an enabled rule. Rules are checked top to bottom."
+>
+	{#snippet actions()}
+		{#if canEdit}
+			<Button class="h-9 px-3.5 text-[13px]" onclick={openNew}>
+				<PlusIcon />
+				Add Rule
+			</Button>
+		{/if}
+	{/snippet}
+</PageHeader>
+
+<div class="container-page grid items-start gap-6 pt-8 pb-18 xl:grid-cols-[minmax(0,1fr)_22rem]">
+	<section class="min-w-0 overflow-hidden rounded-xl border bg-card" aria-label="Trigger rules">
+		<div
+			class={cn(
+				cols,
+				'hidden border-b bg-background px-4 py-2.5 text-xs font-medium text-muted-foreground/80 md:grid'
+			)}
+			aria-hidden="true"
+		>
+			<span>Order</span>
+			<span>Rule</span>
+			<span>Conditions</span>
+			<span>On</span>
+			<span></span>
+		</div>
+
+		{#if rules.isPending}
+			<div class="flex flex-col gap-3 p-4">
+				<Skeleton class="h-12 w-full" />
+				<Skeleton class="h-12 w-full" />
+			</div>
+		{:else if rules.isError}
+			<div class="p-4">
 				<Alert.Root variant="destructive">
 					<CircleAlertIcon />
 					<Alert.Title>{rules.error.message}</Alert.Title>
 				</Alert.Root>
-			{:else if rules.data.length === 0}
-				<div class="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
-					<ZapIcon class="mx-auto mb-2 size-5" />
+			</div>
+		{:else if list.length === 0}
+			<div class="flex flex-col items-center gap-3 px-6 py-12 text-center">
+				<ZapIcon class="size-5 text-muted-foreground" />
+				<p class="max-w-sm text-sm text-muted-foreground">
 					No rules yet, so webhooks never deploy. Add a rule such as “push to main”.
-				</div>
-			{:else}
-				{#each rules.data as r, i (r.id)}
-					<div class={cn('flex flex-col gap-3 rounded-lg border p-4', !r.enabled && 'opacity-60')}>
-						<div class="flex flex-wrap items-center gap-2">
-							<span class="text-xs font-medium text-muted-foreground tabular-nums">#{i + 1}</span>
-							<span class="font-medium">{r.name}</span>
-							<Badge variant="outline">{r.event === 'tag' ? 'Tag push' : 'Branch push'}</Badge>
-							{#if !r.enabled}<Badge variant="secondary">Disabled</Badge>{/if}
+				</p>
+				{#if canEdit}
+					<Button variant="outline" class="h-8 px-3 text-[13px]" onclick={openNew}>
+						<PlusIcon />
+						Add Rule
+					</Button>
+				{/if}
+			</div>
+		{:else}
+			<ol>
+				{#each list as r, i (r.id)}
+					{@const last = r.last_match}
+					<li
+						class={cn(
+							cols,
+							'border-b p-4 transition-opacity last:border-b-0',
+							dragging === r.id && 'opacity-40'
+						)}
+						draggable={armed === r.id}
+						ondragstart={(e) => dragStart(e, r)}
+						ondragover={(e) => dragOver(e, r)}
+						ondrop={(e) => {
+							e.preventDefault();
+							dropped = true;
+						}}
+						ondragend={dragEnd}
+						data-testid="rule-row"
+					>
+						<div class="flex items-center gap-1.5 self-start pt-0.5 md:self-center md:pt-0">
+							{#if canEdit && list.length > 1}
+								<button
+									type="button"
+									class="-ml-1 flex size-5 cursor-grab items-center justify-center rounded text-muted-foreground/80 hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none active:cursor-grabbing"
+									aria-label={`Reorder ${r.name}; use arrow keys to move`}
+									onpointerdown={() => (armed = r.id)}
+									onpointerup={() => dragging === null && (armed = null)}
+									onkeydown={(e) => gripKey(e, i)}
+								>
+									<GripVerticalIcon class="size-[15px]" />
+								</button>
+							{/if}
+							<span class="font-mono text-[13px] text-muted-foreground">{i + 1}</span>
+						</div>
+
+						<div class={cn('flex min-w-0 flex-col gap-1', !r.enabled && 'opacity-55')}>
+							<div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+								<span class="truncate text-sm font-medium">{r.name}</span>
+								<span
+									class="inline-flex h-5 shrink-0 items-center gap-1.5 rounded-full bg-muted px-2 text-[11px] text-muted-foreground"
+								>
+									{#if r.event === 'tag'}<TagIcon class="size-3" />Tag push{:else}<GitBranchIcon
+											class="size-3"
+										/>Branch push{/if}
+								</span>
+							</div>
+							<span class="text-xs text-muted-foreground/80 md:truncate">
+								{#if last}
+									Last matched {shortAgo(last.at)} ·
+									<a
+										href={resolve('/(app)/projects/[id]/deployments/[did]', {
+											id: String(data.id),
+											did: String(last.deployment_id)
+										})}
+										class="hover:text-foreground hover:underline"
+									>
+										deployment #{last.deployment_id}
+									</a>
+								{:else}
+									Never matched
+								{/if}
+							</span>
+						</div>
+
+						<div
+							class={cn(
+								'order-last col-span-full flex min-w-0 flex-col items-start gap-1.5 md:order-none md:col-span-1',
+								!r.enabled && 'opacity-55'
+							)}
+						>
+							{#each conditions(r) as [key, value] (key)}
+								<span
+									class="inline-flex max-w-full overflow-hidden rounded-md border border-input text-xs"
+								>
+									<span
+										class="shrink-0 border-r border-input bg-muted px-2 py-0.5 text-muted-foreground"
+										>{key}</span
+									>
+									<span class="truncate px-2 py-0.5 font-mono" title={value}>{value}</span>
+								</span>
+							{/each}
+						</div>
+
+						<Switch
+							checked={r.enabled}
+							disabled={!canEdit}
+							onCheckedChange={(v) => toggle(r, v)}
+							aria-label={`Enable ${r.name}`}
+							class="data-[size=default]:h-5 data-[size=default]:w-[34px] dark:data-unchecked:border-input dark:data-unchecked:bg-muted dark:data-unchecked:[&>span]:bg-muted-foreground/80"
+						/>
+
+						<div class="flex items-center justify-end gap-0.5">
 							{#if canEdit}
-								<div class="ml-auto flex items-center gap-1">
-									<Switch
-										checked={r.enabled}
-										onCheckedChange={(v) => toggle(r, v)}
-										aria-label={`Enable ${r.name}`}
-									/>
-									<Button
-										variant="ghost"
-										size="icon-sm"
-										disabled={i === 0}
-										onclick={() => move(i, -1)}
-										aria-label="Move up"><ArrowUpIcon /></Button
+								<Button
+									variant="ghost"
+									size="icon-sm"
+									class="size-[30px] text-muted-foreground [&_svg]:size-[15px]"
+									onclick={() => openEdit(r)}
+									aria-label={`Edit ${r.name}`}
+								>
+									<PencilIcon />
+								</Button>
+								<DropdownMenu.Root>
+									<DropdownMenu.Trigger
+										class="flex size-[30px] items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none [&_svg]:size-[15px]"
+										aria-label={`More actions for ${r.name}`}
 									>
-									<Button
-										variant="ghost"
-										size="icon-sm"
-										disabled={i === rules.data.length - 1}
-										onclick={() => move(i, 1)}
-										aria-label="Move down"><ArrowDownIcon /></Button
-									>
-									<Button
-										variant="ghost"
-										size="icon-sm"
-										onclick={() => openEdit(r)}
-										aria-label="Edit"
-									>
-										<PencilIcon />
-									</Button>
-									<ConfirmButton
-										variant="ghost"
-										size="icon-sm"
-										label={`Delete rule ${r.name}`}
-										title={`Delete rule "${r.name}"?`}
-										description="Pushes that only this rule matched will no longer deploy."
-										confirmLabel="Delete rule"
-										destructive
-										onconfirm={() => remove(r)}
-									>
-										<Trash2Icon />
-									</ConfirmButton>
-								</div>
+										<EllipsisIcon />
+									</DropdownMenu.Trigger>
+									<DropdownMenu.Content align="end" class="w-44">
+										<DropdownMenu.Item disabled={i === 0} onSelect={() => move(i, -1)}>
+											<ArrowUpIcon />
+											Move up
+										</DropdownMenu.Item>
+										<DropdownMenu.Item disabled={i === list.length - 1} onSelect={() => move(i, 1)}>
+											<ArrowDownIcon />
+											Move down
+										</DropdownMenu.Item>
+										<DropdownMenu.Separator />
+										<DropdownMenu.Item
+											variant="destructive"
+											onSelect={() => {
+												deleting = r;
+												deleteOpen = true;
+											}}
+										>
+											<Trash2Icon />
+											Delete rule
+										</DropdownMenu.Item>
+									</DropdownMenu.Content>
+								</DropdownMenu.Root>
 							{/if}
 						</div>
-						<dl class="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-							<div>
-								<dt class="text-xs text-muted-foreground">
-									{r.event === 'tag' ? 'Tags' : 'Branches'}
-								</dt>
-								<dd class="font-mono text-xs">{r.ref_pattern}</dd>
-							</div>
-							{#if r.skip_keyword}
-								<div>
-									<dt class="text-xs text-muted-foreground">Skip keyword</dt>
-									<dd class="font-mono text-xs">{r.skip_keyword}</dd>
-								</div>
-							{/if}
-							{#if r.paths_include.length}
-								<div>
-									<dt class="text-xs text-muted-foreground">Only paths</dt>
-									<dd class="font-mono text-xs">{r.paths_include.join(', ')}</dd>
-								</div>
-							{/if}
-							{#if r.paths_exclude.length}
-								<div>
-									<dt class="text-xs text-muted-foreground">Ignored paths</dt>
-									<dd class="font-mono text-xs">{r.paths_exclude.join(', ')}</dd>
-								</div>
-							{/if}
-							{#if Object.keys(r.extra_env).length}
-								<div class="sm:col-span-2">
-									<dt class="text-xs text-muted-foreground">Environment</dt>
-									<dd class="font-mono text-xs">
-										{Object.entries(r.extra_env)
-											.map(([k, v]) => `${k}=${v}`)
-											.join('  ')}
-									</dd>
-								</div>
-							{/if}
-						</dl>
-					</div>
+					</li>
 				{/each}
-			{/if}
-		</Card.Content>
-	</Card.Root>
+			</ol>
+		{/if}
 
-	<Card.Root class="h-fit">
-		<Card.Header>
-			<Card.Title class="flex items-center gap-2 text-base">
-				<FlaskConicalIcon class="size-4" />
-				Test a push
-			</Card.Title>
-			<Card.Description>See which rule would match, without deploying.</Card.Description>
-		</Card.Header>
-		<Card.Content>
-			<form class="flex flex-col gap-4" onsubmit={simulate}>
-				<RadioGroup.Root bind:value={sim.event} class="flex gap-6">
-					<div class="flex items-center gap-2">
-						<RadioGroup.Item value="push" id="sim-push" />
-						<Label for="sim-push" class="font-normal">Branch</Label>
-					</div>
-					<div class="flex items-center gap-2">
-						<RadioGroup.Item value="tag" id="sim-tag" />
-						<Label for="sim-tag" class="font-normal">Tag</Label>
-					</div>
-				</RadioGroup.Root>
-				<div class="flex flex-col gap-2">
-					<Label for="sim-ref">{sim.event === 'tag' ? 'Tag name' : 'Branch name'}</Label>
-					<Input id="sim-ref" required bind:value={sim.ref} class="font-mono" />
-				</div>
-				<div class="flex flex-col gap-2">
-					<Label for="sim-msg">Commit message</Label>
-					<Input id="sim-msg" bind:value={sim.message} placeholder="fix: checkout bug" />
-				</div>
-				<div class="flex flex-col gap-2">
-					<Label for="sim-files">Changed files</Label>
-					<Textarea
-						id="sim-files"
-						bind:value={sim.files}
-						rows={3}
-						class="font-mono text-xs"
-						placeholder="src/app.go&#10;README.md"
-					/>
-					<p class="text-xs text-muted-foreground">One per line; leave empty for “unknown”.</p>
-				</div>
-				<Button type="submit" variant="outline" disabled={simRunning}>
-					{#if simRunning}<LoaderIcon class="animate-spin" />{/if}
-					Test
-				</Button>
-			</form>
+		<p
+			class="flex items-start gap-2 border-t bg-background px-4 py-3 text-[13px] text-muted-foreground/80"
+		>
+			<InfoIcon class="mt-0.5 size-3.5 shrink-0" />
+			<span>
+				Pushes that match no rule are kept under
+				<!-- eslint-disable svelte/no-navigation-without-resolve -- resolved, plus a section hash -->
+				<a
+					href={`${resolve('/(app)/projects/[id]', { id: String(data.id) })}#webhook-deliveries`}
+					class="underline-offset-2 hover:text-foreground hover:underline">Webhook Deliveries</a
+				>
+				<!-- eslint-enable svelte/no-navigation-without-resolve -->
+				as “ignored”.{#if canEdit && list.length > 1}<span class="hidden md:inline"
+						>&nbsp;Drag rows to reorder.</span
+					>{/if}
+			</span>
+		</p>
+	</section>
 
-			{#if simError}
-				<p class="mt-4 text-sm text-destructive">{simError}</p>
-			{:else if simResult}
-				<div class="mt-4 flex flex-col gap-2" data-testid="sim-results">
-					<p class="text-sm font-medium">
-						{simResult.matched_rule_id ? 'Would deploy' : 'Would not deploy'}
-					</p>
-					{#each simResult.results as res (res.rule_id)}
-						<div class="flex gap-2 text-sm">
-							{#if res.matched}
-								<CircleCheckIcon class="mt-0.5 size-4 shrink-0 text-emerald-600" />
-							{:else}
-								<CircleMinusIcon class="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-							{/if}
-							<div>
-								<span class="font-medium">{res.name}</span>
-								<p class="text-xs text-muted-foreground">{res.reason}</p>
-							</div>
-						</div>
-					{:else}
-						<p class="text-sm text-muted-foreground">No rules configured.</p>
-					{/each}
-				</div>
-			{/if}
-		</Card.Content>
-	</Card.Root>
+	<RuleTester projectId={data.id} />
 </div>
 
 <RuleDialog
@@ -334,3 +397,21 @@
 	title={editing ? `Edit rule "${editing.name}"` : 'New rule'}
 	onsubmit={saveRule}
 />
+
+<AlertDialog.Root open={deleteOpen} onOpenChange={(o) => (deleteOpen = o || deleteBusy)}>
+	<AlertDialog.Content>
+		<AlertDialog.Header>
+			<AlertDialog.Title>Delete rule "{deleting?.name}"?</AlertDialog.Title>
+			<AlertDialog.Description>
+				Pushes that only this rule matched will no longer deploy.
+			</AlertDialog.Description>
+		</AlertDialog.Header>
+		<AlertDialog.Footer>
+			<AlertDialog.Cancel disabled={deleteBusy}>Cancel</AlertDialog.Cancel>
+			<Button variant="destructive" onclick={remove} disabled={deleteBusy}>
+				{#if deleteBusy}<LoaderIcon class="animate-spin" />{/if}
+				Delete rule
+			</Button>
+		</AlertDialog.Footer>
+	</AlertDialog.Content>
+</AlertDialog.Root>

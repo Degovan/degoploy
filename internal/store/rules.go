@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"time"
 )
 
 type TriggerRule struct {
@@ -155,4 +156,33 @@ func (s *Store) ReorderRules(ctx context.Context, projectID int64, ids []int64) 
 		}
 		return nil
 	})
+}
+
+// RuleMatch is the newest webhook deployment a rule started.
+type RuleMatch struct {
+	DeploymentID int64
+	At           time.Time
+}
+
+// LastRuleMatches returns the newest webhook deployment of each rule of a project,
+// keyed by rule id. Rules that never matched a push are absent.
+func (s *Store) LastRuleMatches(ctx context.Context, projectID int64) (map[int64]RuleMatch, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT rule_id, id, queued_at FROM deployments
+		WHERE id IN (SELECT MAX(id) FROM deployments
+			WHERE project_id = ? AND trigger = ? AND rule_id IS NOT NULL GROUP BY rule_id)`,
+		projectID, TriggerWebhook)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]RuleMatch{}
+	for rows.Next() {
+		var ruleID int64
+		var m RuleMatch
+		if err := rows.Scan(&ruleID, &m.DeploymentID, &m.At); err != nil {
+			return nil, err
+		}
+		out[ruleID] = m
+	}
+	return out, rows.Err()
 }

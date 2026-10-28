@@ -41,8 +41,12 @@
 	const links = $derived(
 		project.data ? providerLinks(project.data.provider, project.data.repo_url) : null
 	);
-	// A deployment page has its own header and layout.
-	const ownLayout = $derived(page.route.id === '/(app)/projects/[id]/deployments/[did]');
+	// These pages render their own header band and body instead of the project hero.
+	const ownLayouts = new Set([
+		'/(app)/projects/[id]/deployments/[did]',
+		'/(app)/projects/[id]/triggers'
+	]);
+	const ownLayout = $derived(ownLayouts.has(page.route.id ?? ''));
 </script>
 
 <svelte:head>

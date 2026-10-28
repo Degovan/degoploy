@@ -151,6 +151,14 @@ export interface TriggerRule {
 	paths_exclude: string[];
 	skip_keyword: string;
 	extra_env: { [key: string]: string }; // values are masked for non-editors
+	/**
+	 * LastMatch is the newest deployment a webhook push started through this rule.
+	 */
+	last_match: RuleMatch | null;
+}
+export interface RuleMatch {
+	deployment_id: number /* int64 */;
+	at: string;
 }
 export interface RuleInput {
 	name: string;

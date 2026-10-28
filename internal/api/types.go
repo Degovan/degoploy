@@ -135,6 +135,13 @@ type TriggerRule struct {
 	PathsExclude []string          `json:"paths_exclude"`
 	SkipKeyword  string            `json:"skip_keyword"`
 	ExtraEnv     map[string]string `json:"extra_env"` // values are masked for non-editors
+	// LastMatch is the newest deployment a webhook push started through this rule.
+	LastMatch *RuleMatch `json:"last_match" tstype:"RuleMatch | null,required"`
+}
+
+type RuleMatch struct {
+	DeploymentID int64  `json:"deployment_id"`
+	At           string `json:"at"`
 }
 
 type RuleInput struct {

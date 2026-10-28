@@ -130,3 +130,45 @@ func TestDeploymentNeighbors(t *testing.T) {
 		}
 	}
 }
+
+func TestLastRuleMatches(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "a.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	p := &Project{PublicID: "a", Slug: "a", Name: "a", Provider: "github", RepoURL: "git@x:a/b.git",
+		WorkDir: "/srv/a", ScriptSource: ScriptManaged, WebhookSecret: "s", AutoPull: true, TimeoutSec: 60, Enabled: true}
+	if err := s.CreateProject(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	var rules []*TriggerRule
+	for _, name := range []string{"main", "tags", "never"} {
+		r := &TriggerRule{ProjectID: p.ID, Name: name, Enabled: true, Event: "push", RefPattern: "main"}
+		if err := s.CreateRule(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+		rules = append(rules, r)
+	}
+	deploy := func(rule *TriggerRule, trigger string) int64 {
+		d := &Deployment{ProjectID: p.ID, RuleID: &rule.ID, Trigger: trigger}
+		if err := s.CreateDeployment(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+		return d.ID
+	}
+	deploy(rules[0], TriggerWebhook)
+	latest := deploy(rules[0], TriggerWebhook)
+	tag := deploy(rules[1], TriggerWebhook)
+	deploy(rules[0], TriggerManual) // a manual deploy is not a match
+
+	got, err := s.LastRuleMatches(ctx, p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[rules[0].ID].DeploymentID != latest || got[rules[1].ID].DeploymentID != tag ||
+		got[rules[0].ID].At.IsZero() {
+		t.Fatalf("LastRuleMatches = %+v, want rule %d → %d, rule %d → %d", got, rules[0].ID, latest, rules[1].ID, tag)
+	}
+}

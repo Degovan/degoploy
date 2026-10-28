@@ -70,7 +70,7 @@ func evaluate(r *store.TriggerRule, ev Push) (bool, string) {
 	}
 
 	if len(r.PathsInclude) == 0 && len(r.PathsExclude) == 0 {
-		return true, "matched"
+		return true, fmt.Sprintf("%s %q matches %s", refNoun(ev.Kind), ev.RefName, r.RefPattern)
 	}
 	if !ev.FilesKnown || len(ev.Files) == 0 {
 		return true, "matched (changed files unknown, path filters skipped)"
@@ -92,6 +92,13 @@ func evaluate(r *store.TriggerRule, ev Push) (bool, string) {
 		}
 	}
 	return false, "no changed file passes the path filters"
+}
+
+func refNoun(kind string) string {
+	if kind == KindTag {
+		return "tag"
+	}
+	return "branch"
 }
 
 func eventLabel(kind string) string {
