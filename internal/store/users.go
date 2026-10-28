@@ -40,8 +40,10 @@ type User struct {
 	PasswordHash string
 	Role         Role
 	Disabled     bool
-	LastLoginAt  *time.Time
-	CreatedAt    time.Time
+	// MustChangePassword blocks everything but a password change until cleared.
+	MustChangePassword bool
+	LastLoginAt        *time.Time
+	CreatedAt          time.Time
 }
 
 // ErrDuplicate is returned when a unique constraint is violated.
@@ -49,14 +51,14 @@ var ErrDuplicate = errors.New("already exists")
 
 const userCols = `id, username, email, display_name, auth_provider,
 	COALESCE(oidc_issuer, ''), COALESCE(oidc_subject, ''), COALESCE(password_hash, ''),
-	role, disabled, last_login_at, created_at`
+	role, disabled, must_change_password, last_login_at, created_at`
 
 func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 	var u User
 	var last sql.NullTime
 	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.DisplayName, &u.AuthProvider,
 		&u.OIDCIssuer, &u.OIDCSubject, &u.PasswordHash,
-		&u.Role, &u.Disabled, &last, &u.CreatedAt)
+		&u.Role, &u.Disabled, &u.MustChangePassword, &last, &u.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -117,8 +119,10 @@ func (s *Store) CountUsers(ctx context.Context) (int, error) {
 	return n, err
 }
 
-func (s *Store) SetUserPassword(ctx context.Context, id int64, hash string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE id = ?`, hash, id)
+// SetUserPassword stores a new hash; mustChange asks for another change at next sign-in.
+func (s *Store) SetUserPassword(ctx context.Context, id int64, hash string, mustChange bool) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE users SET password_hash = ?, must_change_password = ? WHERE id = ?`,
+		hash, mustChange, id)
 	return err
 }
 

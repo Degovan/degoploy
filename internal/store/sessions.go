@@ -73,3 +73,11 @@ func (s *Store) DeleteUserSessionsExcept(ctx context.Context, userID int64, keep
 	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ? AND id_hash <> ?`, userID, keepHash)
 	return err
 }
+
+// CountUserSessions counts a user's unexpired sessions, leaving out exceptHash.
+func (s *Store) CountUserSessions(ctx context.Context, userID int64, exceptHash string) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions
+		WHERE user_id = ? AND expires_at > ? AND id_hash <> ?`, userID, now(), exceptHash).Scan(&n)
+	return n, err
+}

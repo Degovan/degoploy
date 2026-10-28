@@ -1,19 +1,25 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
 	import { useQueryClient } from '@tanstack/svelte-query';
 	import AppHeader from '#lib/components/app-header.svelte';
+	import PasswordChangeGate from '#lib/components/password-change-gate.svelte';
 	import { cacheDeployment, deploymentKeys, isActive } from '#lib/api/deployments.js';
 	import { projectKeys } from '#lib/api/projects.js';
 	import { ruleKeys } from '#lib/api/rules.js';
 	import type { Deployment } from '#lib/api/types.gen.js';
 	import { realtime } from '#lib/realtime.svelte.js';
+	import { session } from '#lib/stores/session.svelte.js';
 	import type { LayoutProps } from './$types';
 
 	let { children }: LayoutProps = $props();
 	const queryClient = useQueryClient();
 
+	// After an admin reset with "require a new password", the API refuses
+	// everything else, so the app waits behind the gate.
+	const mustChange = $derived(!!session.user?.must_change_password);
+
 	// One realtime connection for the signed-in app; events keep query caches fresh.
-	onMount(() => {
+	function connectRealtime() {
 		realtime.connect();
 		const unsubscribe = realtime.subscribe('events', (m) => {
 			const pid = m.project_id;
@@ -39,6 +45,10 @@
 			unsubscribe();
 			realtime.disconnect();
 		};
+	}
+	$effect(() => {
+		if (mustChange) return;
+		return untrack(connectRealtime);
 	});
 
 	// After a reconnect (not the first connect) events may have been missed: refetch.
@@ -50,9 +60,13 @@
 	});
 </script>
 
-<div class="flex min-h-svh flex-col">
-	<AppHeader />
-	<main class="flex min-w-0 flex-1 flex-col pb-16">
-		{@render children()}
-	</main>
-</div>
+{#if mustChange}
+	<PasswordChangeGate />
+{:else}
+	<div class="flex min-h-svh flex-col">
+		<AppHeader />
+		<main class="flex min-w-0 flex-1 flex-col pb-16">
+			{@render children()}
+		</main>
+	</div>
+{/if}

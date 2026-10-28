@@ -44,6 +44,10 @@ func (a *API) websocket(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusUnauthorized, "unauthenticated", "login required")
 		return
 	}
+	if ident.User.MustChangePassword {
+		auth.PasswordChangeRequired(w)
+		return
+	}
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: a.originPatterns()})
 	if err != nil {
 		return // Accept already wrote the error response

@@ -4,15 +4,17 @@ package api
 // (see tygo.yaml), so keep JSON tags authoritative and avoid unexported shapes.
 
 type User struct {
-	ID           int64   `json:"id"`
-	Username     string  `json:"username"`
-	Email        string  `json:"email"`
-	DisplayName  string  `json:"display_name"`
-	AuthProvider string  `json:"auth_provider"`
-	Role         string  `json:"role" tstype:"Role"`
-	Disabled     bool    `json:"disabled"`
-	LastLoginAt  *string `json:"last_login_at" tstype:"string | null,required"`
-	CreatedAt    string  `json:"created_at"`
+	ID           int64  `json:"id"`
+	Username     string `json:"username"`
+	Email        string `json:"email"`
+	DisplayName  string `json:"display_name"`
+	AuthProvider string `json:"auth_provider"`
+	Role         string `json:"role" tstype:"Role"`
+	Disabled     bool   `json:"disabled"`
+	// MustChangePassword: the API refuses everything but a password change.
+	MustChangePassword bool    `json:"must_change_password"`
+	LastLoginAt        *string `json:"last_login_at" tstype:"string | null,required"`
+	CreatedAt          string  `json:"created_at"`
 }
 
 type OIDCProvider struct {
@@ -308,6 +310,13 @@ type AcceptInviteRequest struct {
 
 type SetPasswordRequest struct {
 	Password string `json:"password"`
+	// RequireChange makes the user pick their own password at next sign-in.
+	RequireChange bool `json:"require_change"`
+}
+
+// UserSessions counts the sessions a password reset would end.
+type UserSessions struct {
+	Active int `json:"active"`
 }
 
 type ChangePasswordRequest struct {

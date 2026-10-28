@@ -111,14 +111,15 @@ func (a *API) clientIP(r *http.Request) string {
 
 func toUser(u *store.User) User {
 	out := User{
-		ID:           u.ID,
-		Username:     u.Username,
-		Email:        u.Email,
-		DisplayName:  u.DisplayName,
-		AuthProvider: u.AuthProvider,
-		Role:         string(u.Role),
-		Disabled:     u.Disabled,
-		CreatedAt:    u.CreatedAt.UTC().Format(time.RFC3339),
+		ID:                 u.ID,
+		Username:           u.Username,
+		Email:              u.Email,
+		DisplayName:        u.DisplayName,
+		AuthProvider:       u.AuthProvider,
+		Role:               string(u.Role),
+		Disabled:           u.Disabled,
+		MustChangePassword: u.MustChangePassword,
+		CreatedAt:          u.CreatedAt.UTC().Format(time.RFC3339),
 	}
 	if u.LastLoginAt != nil {
 		s := u.LastLoginAt.UTC().Format(time.RFC3339)

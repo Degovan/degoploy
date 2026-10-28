@@ -117,6 +117,10 @@ func RequireAuth(next http.Handler) http.Handler {
 			httpx.Error(w, http.StatusForbidden, "csrf", "missing or invalid CSRF token")
 			return
 		}
+		if id.User.MustChangePassword && !passwordChangePaths[r.Method+" "+r.URL.Path] {
+			PasswordChangeRequired(w)
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -135,6 +139,18 @@ func (m *Sessions) setCookie(w http.ResponseWriter, value string, expires time.T
 		c.MaxAge = -1
 	}
 	http.SetCookie(w, c)
+}
+
+// passwordChangePaths stay reachable while a user must change their password.
+var passwordChangePaths = map[string]bool{
+	"GET /api/v1/me":           true,
+	"POST /api/v1/me/password": true,
+	"POST /api/v1/auth/logout": true,
+}
+
+// PasswordChangeRequired rejects a request from a user who must first change their password.
+func PasswordChangeRequired(w http.ResponseWriter) {
+	httpx.Error(w, http.StatusForbidden, "password_change_required", "choose a new password first")
 }
 
 func isSafeMethod(m string) bool {

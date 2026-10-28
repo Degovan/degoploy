@@ -15,7 +15,7 @@
 	import InviteDialog from '#lib/components/invite-dialog.svelte';
 	import PageHeader from '#lib/components/page-header.svelte';
 	import { roleInfo, roles } from '#lib/components/role-picker.svelte';
-	import SetPasswordDialog from '#lib/components/set-password-dialog.svelte';
+	import ResetPasswordDialog from '#lib/components/reset-password-dialog.svelte';
 	import UserAvatar from '#lib/components/user-avatar.svelte';
 	import UserDialog, { type UserFormValues } from '#lib/components/user-dialog.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
@@ -436,13 +436,16 @@
 												{@render status('bg-emerald-400', 'Active')}
 											{/if}
 										</div>
-										<span class="text-[13px] text-muted-foreground">
+										<span class="flex flex-col gap-[3px] text-[13px] text-muted-foreground">
 											{#if u.last_login_at}
 												<time datetime={u.last_login_at} title={formatDateTime(u.last_login_at)}
 													>{capitalize(timeAgo(u.last_login_at))}</time
 												>
 											{:else}
 												<span class="text-muted-foreground/80">Never</span>
+											{/if}
+											{#if u.must_change_password}
+												<span class="text-xs text-amber-400">Must set a new password</span>
 											{/if}
 										</span>
 									</div>
@@ -558,14 +561,7 @@
 
 <InviteDialog bind:open={inviteOpen} bind:links={inviteLinks} oncreated={refreshInvites} />
 
-<SetPasswordDialog
-	bind:open={pwOpen}
-	username={pwUser?.username}
-	onsubmit={async (_current, next) => {
-		await usersApi.setPassword(pwUser!.id, next);
-		toast.success(`Password set for ${pwUser!.username}`);
-	}}
-/>
+<ResetPasswordDialog bind:open={pwOpen} user={pwUser} isSelf={pwUser?.id === session.user?.id} />
 
 <AlertDialog.Root open={confirmOpen} onOpenChange={(o) => (confirmOpen = o || confirmBusy)}>
 	<AlertDialog.Content>

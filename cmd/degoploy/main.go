@@ -196,7 +196,7 @@ func runUser(args []string) error {
 		if err != nil {
 			return err
 		}
-		if err := st.SetUserPassword(ctx, u.ID, hash); err != nil {
+		if err := st.SetUserPassword(ctx, u.ID, hash, false); err != nil {
 			return err
 		}
 		if err := st.DeleteUserSessions(ctx, u.ID); err != nil {

@@ -128,3 +128,53 @@ func TestUserManagement(t *testing.T) {
 		t.Fatalf("entries for deleted user = %d", len(mine.Entries))
 	}
 }
+
+func TestResetPasswordRequireChange(t *testing.T) {
+	srv, st := newTestServer(t)
+	createUser(t, st, "root", "root-password-1", store.RoleAdmin)
+	createUser(t, st, "dep", "deployer-password", store.RoleDeployer)
+	admin := login(t, srv.URL, "root", "root-password-1")
+	dep := login(t, srv.URL, "dep", "deployer-password")
+	login(t, srv.URL, "dep", "deployer-password")
+
+	var sessions api.UserSessions
+	if code := admin.do("GET", "/api/v1/users/2/sessions", "", &sessions); code != 200 || sessions.Active != 2 {
+		t.Fatalf("dep sessions: %d %+v", code, sessions)
+	}
+	// Your own count leaves out the session you are using.
+	if code := admin.do("GET", "/api/v1/users/1/sessions", "", &sessions); code != 200 || sessions.Active != 0 {
+		t.Fatalf("own sessions: %d %+v", code, sessions)
+	}
+
+	if code := admin.do("PUT", "/api/v1/users/2/password", `{"password":"temporary-pass-1","require_change":true}`, nil); code != 204 {
+		t.Fatalf("reset: %d", code)
+	}
+	if code := dep.do("GET", "/api/v1/me", "", nil); code != 401 {
+		t.Fatalf("old session after reset: %d", code)
+	}
+
+	// Until they pick their own password, only /me, the password change and logout work.
+	dep = login(t, srv.URL, "dep", "temporary-pass-1")
+	var me api.Me
+	if code := dep.do("GET", "/api/v1/me", "", &me); code != 200 || !me.User.MustChangePassword {
+		t.Fatalf("me after reset: %d %+v", code, me.User)
+	}
+	var e httpx.ErrorBody
+	if code := dep.do("GET", "/api/v1/projects", "", &e); code != 403 || e.Code != "password_change_required" {
+		t.Fatalf("projects before change: %d %+v", code, e)
+	}
+	if code := dep.do("POST", "/api/v1/me/password", `{"current_password":"temporary-pass-1","new_password":"my-own-password"}`, nil); code != 204 {
+		t.Fatalf("change: %d", code)
+	}
+	if code := dep.do("GET", "/api/v1/projects", "", nil); code != 200 {
+		t.Fatalf("projects after change: %d", code)
+	}
+
+	// Resetting yourself never locks you out.
+	if code := admin.do("PUT", "/api/v1/users/1/password", `{"password":"root-password-2","require_change":true}`, nil); code != 204 {
+		t.Fatalf("self reset: %d", code)
+	}
+	if code := admin.do("GET", "/api/v1/me", "", &me); code != 200 || me.User.MustChangePassword {
+		t.Fatalf("self reset flag: %d %+v", code, me.User)
+	}
+}

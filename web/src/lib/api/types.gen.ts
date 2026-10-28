@@ -28,6 +28,10 @@ export interface User {
 	auth_provider: string;
 	role: Role;
 	disabled: boolean;
+	/**
+	 * MustChangePassword: the API refuses everything but a password change.
+	 */
+	must_change_password: boolean;
 	last_login_at: string | null;
 	created_at: string;
 }
@@ -334,6 +338,16 @@ export interface AcceptInviteRequest {
 }
 export interface SetPasswordRequest {
 	password: string;
+	/**
+	 * RequireChange makes the user pick their own password at next sign-in.
+	 */
+	require_change: boolean;
+}
+/**
+ * UserSessions counts the sessions a password reset would end.
+ */
+export interface UserSessions {
+	active: number /* int */;
 }
 export interface ChangePasswordRequest {
 	current_password: string;

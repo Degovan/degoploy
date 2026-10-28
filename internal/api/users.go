@@ -23,6 +23,7 @@ func (a *API) registerUsers(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/users", need(auth.ActionUserManage, a.createUser))
 	mux.Handle("PATCH /api/v1/users/{uid}", need(auth.ActionUserManage, a.updateUser))
 	mux.Handle("PUT /api/v1/users/{uid}/password", need(auth.ActionUserManage, a.setUserPassword))
+	mux.Handle("GET /api/v1/users/{uid}/sessions", need(auth.ActionUserManage, a.userSessions))
 	mux.Handle("DELETE /api/v1/users/{uid}", need(auth.ActionUserManage, a.deleteUser))
 	mux.Handle("POST /api/v1/me/password", auth.RequireAuth(http.HandlerFunc(a.changeOwnPassword)))
 	mux.Handle("GET /api/v1/audit", need(auth.ActionAuditView, a.listAudit))
@@ -175,7 +176,9 @@ func (a *API) setUserPassword(w http.ResponseWriter, r *http.Request) {
 		validationError(w, "password", err.Error())
 		return
 	}
-	if err := a.store.SetUserPassword(r.Context(), u.ID, hash); err != nil {
+	// Asking yourself to change again right away would only lock you out of this session.
+	mustChange := req.RequireChange && u.ID != ident.User.ID
+	if err := a.store.SetUserPassword(r.Context(), u.ID, hash, mustChange); err != nil {
 		httpx.InternalError(w, r, err)
 		return
 	}
@@ -189,8 +192,28 @@ func (a *API) setUserPassword(w http.ResponseWriter, r *http.Request) {
 		httpx.InternalError(w, r, err)
 		return
 	}
-	a.recordUser(r, ident.User.ID, audit.UserPasswordReset, u, nil)
+	a.recordUser(r, ident.User.ID, audit.UserPasswordReset, u, map[string]any{"require_change": mustChange})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// userSessions counts the sessions a password reset would end: all of the
+// user's, or, when resetting yourself, all but the current one.
+func (a *API) userSessions(w http.ResponseWriter, r *http.Request) {
+	ident := auth.FromContext(r.Context())
+	u, ok := a.loadUser(w, r)
+	if !ok {
+		return
+	}
+	except := ""
+	if u.ID == ident.User.ID {
+		except = ident.Session.IDHash
+	}
+	n, err := a.store.CountUserSessions(r.Context(), u.ID, except)
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, UserSessions{Active: n})
 }
 
 func (a *API) deleteUser(w http.ResponseWriter, r *http.Request) {
@@ -239,7 +262,7 @@ func (a *API) changeOwnPassword(w http.ResponseWriter, r *http.Request) {
 		validationError(w, "new_password", err.Error())
 		return
 	}
-	if err := a.store.SetUserPassword(r.Context(), u.ID, hash); err != nil {
+	if err := a.store.SetUserPassword(r.Context(), u.ID, hash, false); err != nil {
 		httpx.InternalError(w, r, err)
 		return
 	}

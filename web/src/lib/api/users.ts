@@ -9,8 +9,10 @@ import type {
 	InviteLink,
 	InvitePreview,
 	Me,
+	SetPasswordRequest,
 	UpdateUserRequest,
-	User
+	User,
+	UserSessions
 } from './types.gen.js';
 
 export const userKeys = { all: ['users'] as const };
@@ -19,8 +21,9 @@ export const usersApi = {
 	list: () => api.get<User[]>('/users'),
 	create: (body: CreateUserRequest) => api.post<User>('/users', body),
 	update: (id: number, body: UpdateUserRequest) => api.patch<User>(`/users/${id}`, body),
-	setPassword: (id: number, password: string) =>
-		api.put<void>(`/users/${id}/password`, { password }),
+	setPassword: (id: number, body: SetPasswordRequest) =>
+		api.put<void>(`/users/${id}/password`, body),
+	sessions: (id: number) => api.get<UserSessions>(`/users/${id}/sessions`),
 	remove: (id: number) => api.delete<void>(`/users/${id}`),
 	changeOwnPassword: (body: ChangePasswordRequest) => api.post<void>('/me/password', body)
 };
