@@ -85,6 +85,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	a.registerRules(mux)
 	a.registerDeployments(mux)
 	a.registerUsers(mux)
+	a.registerInvites(mux)
 	a.registerOIDC(mux)
 	mux.Handle("GET /ws", http.HandlerFunc(a.websocket))
 	mux.HandleFunc("POST /hook/{publicID}", a.hook)

@@ -1,8 +1,14 @@
 import { api } from './client.js';
 import type {
 	AuditPage,
+	AcceptInviteRequest,
 	ChangePasswordRequest,
+	CreateInvitesRequest,
 	CreateUserRequest,
+	Invite,
+	InviteLink,
+	InvitePreview,
+	Me,
 	UpdateUserRequest,
 	User
 } from './types.gen.js';
@@ -18,6 +24,21 @@ export const usersApi = {
 	remove: (id: number) => api.delete<void>(`/users/${id}`),
 	changeOwnPassword: (body: ChangePasswordRequest) => api.post<void>('/me/password', body)
 };
+
+export const inviteKeys = { all: ['invites'] as const };
+
+export const invitesApi = {
+	list: () => api.get<Invite[]>('/invites'),
+	create: (body: CreateInvitesRequest) => api.post<InviteLink[]>('/invites', body),
+	renew: (id: number) => api.post<InviteLink>(`/invites/${id}/renew`),
+	revoke: (id: number) => api.delete<void>(`/invites/${id}`),
+	preview: (token: string) => api.get<InvitePreview>(`/auth/invite/${encodeURIComponent(token)}`),
+	accept: (token: string, body: AcceptInviteRequest) =>
+		api.post<Me>(`/auth/invite/${encodeURIComponent(token)}`, body)
+};
+
+/** The accept page for an invite token, on this server. */
+export const inviteUrl = (token: string) => `${location.origin}/invite/${token}`;
 
 export type AuditQuery = { action?: string; user?: number; before?: number; limit?: number };
 

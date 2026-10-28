@@ -40,6 +40,11 @@ const (
 	UserDelete        = "user.delete"
 	UserPasswordReset = "user.password_reset"
 	PasswordChange    = "auth.password_change"
+
+	InviteCreate = "invite.create"
+	InviteRenew  = "invite.renew"
+	InviteRevoke = "invite.revoke"
+	InviteAccept = "invite.accept"
 )
 
 type Logger struct {

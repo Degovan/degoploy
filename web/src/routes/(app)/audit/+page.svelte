@@ -22,7 +22,8 @@
 		{ value: 'rule.', label: 'Trigger rules' },
 		{ value: 'variable.', label: 'Variables' },
 		{ value: 'deployment.', label: 'Deployments' },
-		{ value: 'user.', label: 'Users' }
+		{ value: 'user.', label: 'Users' },
+		{ value: 'invite.', label: 'Invites' }
 	];
 
 	const actionLabels: Record<string, string> = {
@@ -50,7 +51,11 @@
 		'user.create': 'Added user',
 		'user.update': 'Updated user',
 		'user.delete': 'Deleted user',
-		'user.password_reset': 'Reset user password'
+		'user.password_reset': 'Reset user password',
+		'invite.create': 'Invited user',
+		'invite.renew': 'Renewed invite link',
+		'invite.revoke': 'Revoked invite',
+		'invite.accept': 'Accepted invite'
 	};
 
 	const tone = (action: string) =>
@@ -95,6 +100,7 @@
 		const out: string[] = [];
 		for (const [k, v] of Object.entries(e.detail)) {
 			if (k === 'slug' || (k === 'username' && e.target_type === 'user')) continue;
+			if (k === 'email' && e.target_type === 'invite') continue;
 			if (k === 'changes' && v && typeof v === 'object') {
 				for (const [field, pair] of Object.entries(v as Record<string, [unknown, unknown]>)) {
 					out.push(`${field}: ${fmt(pair[0])} → ${fmt(pair[1])}`);
@@ -116,6 +122,11 @@
 		if (e.target_type === 'user') {
 			return {
 				label: '@' + (typeof e.detail.username === 'string' ? e.detail.username : e.target_id)
+			};
+		}
+		if (e.target_type === 'invite') {
+			return {
+				label: typeof e.detail.email === 'string' ? e.detail.email : `invite #${e.target_id}`
 			};
 		}
 		if (e.target_type === 'deployment') return { label: `deployment #${e.target_id}` };

@@ -291,6 +291,47 @@ export interface CreateUserRequest {
 	role: Role;
 	password: string;
 }
+/**
+ * Invite is a pending invitation to create a local account.
+ */
+export interface Invite {
+	id: number /* int64 */;
+	email: string;
+	role: Role;
+	invited_by: string;
+	created_at: string;
+	expires_at: string;
+	expired: boolean;
+}
+/**
+ * CreateInvitesRequest invites every address with the same role.
+ */
+export interface CreateInvitesRequest {
+	emails: string[];
+	role: Role;
+}
+/**
+ * InviteLink carries the link token, which is returned only when an invite is
+ * created or renewed. The accept page lives at /invite/{token}.
+ */
+export interface InviteLink {
+	invite: Invite;
+	token: string;
+}
+/**
+ * InvitePreview is what the accept page shows before the account exists.
+ */
+export interface InvitePreview {
+	email: string;
+	role: Role;
+	invited_by: string;
+	expires_at: string;
+}
+export interface AcceptInviteRequest {
+	username: string;
+	display_name: string;
+	password: string;
+}
 export interface SetPasswordRequest {
 	password: string;
 }

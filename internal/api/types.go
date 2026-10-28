@@ -268,6 +268,44 @@ type CreateUserRequest struct {
 	Password    string `json:"password"`
 }
 
+// Invite is a pending invitation to create a local account.
+type Invite struct {
+	ID        int64  `json:"id"`
+	Email     string `json:"email"`
+	Role      string `json:"role" tstype:"Role"`
+	InvitedBy string `json:"invited_by"`
+	CreatedAt string `json:"created_at"`
+	ExpiresAt string `json:"expires_at"`
+	Expired   bool   `json:"expired"`
+}
+
+// CreateInvitesRequest invites every address with the same role.
+type CreateInvitesRequest struct {
+	Emails []string `json:"emails"`
+	Role   string   `json:"role" tstype:"Role"`
+}
+
+// InviteLink carries the link token, which is returned only when an invite is
+// created or renewed. The accept page lives at /invite/{token}.
+type InviteLink struct {
+	Invite Invite `json:"invite"`
+	Token  string `json:"token"`
+}
+
+// InvitePreview is what the accept page shows before the account exists.
+type InvitePreview struct {
+	Email     string `json:"email"`
+	Role      string `json:"role" tstype:"Role"`
+	InvitedBy string `json:"invited_by"`
+	ExpiresAt string `json:"expires_at"`
+}
+
+type AcceptInviteRequest struct {
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	Password    string `json:"password"`
+}
+
 type SetPasswordRequest struct {
 	Password string `json:"password"`
 }

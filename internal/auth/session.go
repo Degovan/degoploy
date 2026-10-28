@@ -151,6 +151,15 @@ func randomToken(n int) string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
+// NewToken returns a random URL-safe token and the hash to store for it.
+func NewToken() (token, hash string) {
+	token = randomToken(32)
+	return token, hashToken(token)
+}
+
+// HashToken returns the stored form of a token from NewToken.
+func HashToken(t string) string { return hashToken(t) }
+
 func hashToken(t string) string {
 	sum := sha256.Sum256([]byte(t))
 	return hex.EncodeToString(sum[:])
