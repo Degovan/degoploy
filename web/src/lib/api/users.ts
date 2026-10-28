@@ -9,6 +9,7 @@ import type {
 	InviteLink,
 	InvitePreview,
 	Me,
+	RoleSummary,
 	SetPasswordRequest,
 	UpdateUserRequest,
 	User,
@@ -27,6 +28,10 @@ export const usersApi = {
 	remove: (id: number) => api.delete<void>(`/users/${id}`),
 	changeOwnPassword: (body: ChangePasswordRequest) => api.post<void>('/me/password', body)
 };
+
+export const roleKeys = { all: ['roles'] as const };
+
+export const rolesApi = { list: () => api.get<RoleSummary[]>('/roles') };
 
 export const inviteKeys = { all: ['invites'] as const };
 

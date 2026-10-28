@@ -86,6 +86,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	a.registerDeployments(mux)
 	a.registerUsers(mux)
 	a.registerInvites(mux)
+	mux.Handle("GET /api/v1/roles", authed(a.authz.Require(auth.ActionUserManage, http.HandlerFunc(a.listRoles))))
 	a.registerOIDC(mux)
 	mux.Handle("GET /ws", http.HandlerFunc(a.websocket))
 	mux.HandleFunc("POST /hook/{publicID}", a.hook)

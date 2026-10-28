@@ -32,7 +32,10 @@
 <script lang="ts">
 	import { cn } from '#lib/utils.js';
 
-	let { user, class: className }: { user: User; class?: string } = $props();
+	let {
+		user,
+		class: className
+	}: { user: Pick<User, 'username' | 'display_name'>; class?: string } = $props();
 </script>
 
 <span

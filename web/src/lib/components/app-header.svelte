@@ -55,6 +55,7 @@
 		return [
 			{ label: 'Projects', href: resolve('/(app)/projects') },
 			{ label: 'Users', href: resolve('/(app)/users'), requires: 'user.manage' },
+			{ label: 'Roles', href: resolve('/(app)/roles'), requires: 'user.manage' },
 			{ label: 'Audit log', href: resolve('/(app)/audit'), requires: 'audit.view' },
 			{ label: 'SSO', href: resolve('/(app)/sso'), requires: 'user.manage' }
 		];

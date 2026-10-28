@@ -296,6 +296,20 @@ export interface CreateUserRequest {
 	password: string;
 }
 /**
+ * RoleSummary describes a built-in role: what it may do and who has it.
+ */
+export interface RoleSummary {
+	role: Role;
+	permissions: Action[];
+	members: RoleMember[];
+}
+export interface RoleMember {
+	id: number /* int64 */;
+	username: string;
+	display_name: string;
+	disabled: boolean;
+}
+/**
  * Invite is a pending invitation to create a local account.
  */
 export interface Invite {

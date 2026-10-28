@@ -40,6 +40,17 @@ var rolePerms = map[store.Role]map[Action]bool{
 	},
 }
 
+// RolePermissions lists what a role may do, in AllActions order.
+func RolePermissions(role store.Role) []Action {
+	out := []Action{}
+	for _, act := range AllActions {
+		if rolePerms[role][act] {
+			out = append(out, act)
+		}
+	}
+	return out
+}
+
 // globalOnly actions are never affected by per-project membership.
 var globalOnly = map[Action]bool{
 	ActionProjectCreate: true, ActionUserManage: true, ActionAuditView: true,

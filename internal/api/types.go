@@ -270,6 +270,20 @@ type CreateUserRequest struct {
 	Password    string `json:"password"`
 }
 
+// RoleSummary describes a built-in role: what it may do and who has it.
+type RoleSummary struct {
+	Role        string       `json:"role" tstype:"Role"`
+	Permissions []string     `json:"permissions" tstype:"Action[]"`
+	Members     []RoleMember `json:"members"`
+}
+
+type RoleMember struct {
+	ID          int64  `json:"id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	Disabled    bool   `json:"disabled"`
+}
+
 // Invite is a pending invitation to create a local account.
 type Invite struct {
 	ID        int64  `json:"id"`
