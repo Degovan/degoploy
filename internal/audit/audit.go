@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"sort"
 
 	"github.com/degovan/degoploy/internal/store"
 )
@@ -46,6 +47,30 @@ const (
 	InviteRevoke = "invite.revoke"
 	InviteAccept = "invite.accept"
 )
+
+// sensitive actions touch credentials or access; the audit log highlights them.
+var sensitive = map[string]bool{
+	LoginFailed:             true,
+	ProjectDelete:           true,
+	ProjectSecretsView:      true,
+	ProjectKeyRegenerate:    true,
+	ProjectSecretRegenerate: true,
+	UserDelete:              true,
+	UserPasswordReset:       true,
+}
+
+// IsSensitive reports whether an action is highlighted as sensitive.
+func IsSensitive(action string) bool { return sensitive[action] }
+
+// SensitiveActions lists the sensitive actions, for filtering.
+func SensitiveActions() []string {
+	out := make([]string, 0, len(sensitive))
+	for a := range sensitive {
+		out = append(out, a)
+	}
+	sort.Strings(out)
+	return out
+}
 
 type Logger struct {
 	store *store.Store

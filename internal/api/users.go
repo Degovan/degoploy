@@ -1,13 +1,11 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/degovan/degoploy/internal/audit"
 	"github.com/degovan/degoploy/internal/auth"
@@ -27,6 +25,7 @@ func (a *API) registerUsers(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/v1/users/{uid}", need(auth.ActionUserManage, a.deleteUser))
 	mux.Handle("POST /api/v1/me/password", auth.RequireAuth(http.HandlerFunc(a.changeOwnPassword)))
 	mux.Handle("GET /api/v1/audit", need(auth.ActionAuditView, a.listAudit))
+	mux.Handle("GET /api/v1/audit/summary", need(auth.ActionAuditView, a.auditSummary))
 }
 
 var usernameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$`)
@@ -273,42 +272,6 @@ func (a *API) changeOwnPassword(w http.ResponseWriter, r *http.Request) {
 	a.audit.Record(r.Context(), audit.Entry{UserID: u.ID, Action: audit.PasswordChange, IP: ip,
 		TargetType: "user", TargetID: strconv.FormatInt(u.ID, 10)})
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func (a *API) listAudit(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	f := store.AuditFilter{ActionPrefix: q.Get("action")}
-	f.BeforeID, _ = strconv.ParseInt(q.Get("before"), 10, 64)
-	f.UserID, _ = strconv.ParseInt(q.Get("user"), 10, 64)
-	f.Limit, _ = strconv.Atoi(q.Get("limit"))
-	if f.Limit <= 0 || f.Limit > 200 {
-		f.Limit = 50
-	}
-	// Fetch one extra row to know whether another page exists.
-	want := f.Limit
-	f.Limit++
-	entries, err := a.store.ListAudit(r.Context(), f)
-	if err != nil {
-		httpx.InternalError(w, r, err)
-		return
-	}
-	page := AuditPage{Entries: make([]AuditEntry, 0, len(entries))}
-	if len(entries) > want {
-		entries = entries[:want]
-		next := entries[want-1].ID
-		page.NextBefore = &next
-	}
-	for _, e := range entries {
-		var detail map[string]any
-		if json.Unmarshal([]byte(e.Detail), &detail) != nil || detail == nil {
-			detail = map[string]any{}
-		}
-		page.Entries = append(page.Entries, AuditEntry{
-			ID: e.ID, UserID: e.UserID, Username: e.Username, Action: e.Action, TargetType: e.TargetType,
-			TargetID: e.TargetID, Detail: detail, IP: e.IP, CreatedAt: e.CreatedAt.UTC().Format(time.RFC3339),
-		})
-	}
-	httpx.JSON(w, http.StatusOK, page)
 }
 
 func (a *API) loadUser(w http.ResponseWriter, r *http.Request) (*store.User, bool) {

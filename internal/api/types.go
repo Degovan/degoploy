@@ -348,12 +348,25 @@ type AuditEntry struct {
 	Detail     map[string]any `json:"detail" tstype:"AuditDetail"`
 	IP         string         `json:"ip"`
 	CreatedAt  string         `json:"created_at"`
+	// Sensitive marks actions that touch credentials or access.
+	Sensitive bool `json:"sensitive"`
 }
 
 type AuditPage struct {
 	Entries []AuditEntry `json:"entries"`
 	// NextBefore is the cursor for the next (older) page, or null at the end.
 	NextBefore *int64 `json:"next_before" tstype:"number | null,required"`
+	// Total counts every entry matching the filters, across all pages.
+	Total int `json:"total"`
+	// DayCounts counts matching entries per local day ("2006-01-02", in the
+	// zone given by the tz parameter) for the days present in this page.
+	DayCounts map[string]int `json:"day_counts"`
+}
+
+// AuditSummary counts entries since a point in time (the page uses local midnight).
+type AuditSummary struct {
+	Events    int `json:"events"`
+	Sensitive int `json:"sensitive"`
 }
 
 // UpdateProjectRequest is a partial update; omitted fields keep their value.

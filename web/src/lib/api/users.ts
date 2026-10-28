@@ -1,6 +1,7 @@
 import { api } from './client.js';
 import type {
 	AuditPage,
+	AuditSummary,
 	AcceptInviteRequest,
 	ChangePasswordRequest,
 	CreateInvitesRequest,
@@ -48,14 +49,29 @@ export const invitesApi = {
 /** The accept page for an invite token, on this server. */
 export const inviteUrl = (token: string) => `${location.origin}/invite/${token}`;
 
-export type AuditQuery = { action?: string; user?: number; before?: number; limit?: number };
+export type AuditQuery = {
+	action?: string;
+	user?: number;
+	/** Matches the actor, action, target, detail or IP. */
+	q?: string;
+	sensitive?: boolean;
+	/** The viewer's UTC offset in minutes, for day_counts. */
+	tz?: number;
+	before?: number;
+	limit?: number;
+};
 
-export const auditKeys = { list: (q: AuditQuery) => ['audit', q] as const };
+export const auditKeys = {
+	list: (q: AuditQuery) => ['audit', q] as const,
+	summary: (since: string) => ['audit', 'summary', since] as const
+};
 
 export const auditApi = {
 	list: (q: AuditQuery) => {
 		const params = new URLSearchParams();
-		for (const [k, v] of Object.entries(q)) if (v) params.set(k, String(v));
+		for (const [k, v] of Object.entries(q)) if (v) params.set(k, v === true ? '1' : String(v));
 		return api.get<AuditPage>(`/audit?${params}`);
-	}
+	},
+	summary: (since: string) =>
+		api.get<AuditSummary>(`/audit/summary?since=${encodeURIComponent(since)}`)
 };

@@ -377,6 +377,10 @@ export interface AuditEntry {
 	detail: AuditDetail;
 	ip: string;
 	created_at: string;
+	/**
+	 * Sensitive marks actions that touch credentials or access.
+	 */
+	sensitive: boolean;
 }
 export interface AuditPage {
 	entries: AuditEntry[];
@@ -384,6 +388,22 @@ export interface AuditPage {
 	 * NextBefore is the cursor for the next (older) page, or null at the end.
 	 */
 	next_before: number | null;
+	/**
+	 * Total counts every entry matching the filters, across all pages.
+	 */
+	total: number /* int */;
+	/**
+	 * DayCounts counts matching entries per local day ("2006-01-02", in the
+	 * zone given by the tz parameter) for the days present in this page.
+	 */
+	day_counts: { [key: string]: number /* int */ };
+}
+/**
+ * AuditSummary counts entries since a point in time (the page uses local midnight).
+ */
+export interface AuditSummary {
+	events: number /* int */;
+	sensitive: number /* int */;
 }
 /**
  * UpdateProjectRequest is a partial update; omitted fields keep their value.
