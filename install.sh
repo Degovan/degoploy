@@ -62,7 +62,7 @@ main() {
 	tmp=$(mktemp -d)
 	trap 'rm -rf "$tmp"' EXIT INT TERM
 	say "Downloading degoploy ($version, linux/$arch)"
-	fetch "$url/$file" "$tmp/$file" || die "could not download $url/$file"
+	fetch "$url/$file" "$tmp/$file" progress || die "could not download $url/$file"
 	fetch "$url/SHA256SUMS" "$tmp/SHA256SUMS" || die "could not download $url/SHA256SUMS"
 
 	want=$(awk -v f="$file" '$2 == f || $2 == "*" f { print $1 }' "$tmp/SHA256SUMS")
@@ -100,11 +100,23 @@ die() {
 	exit 1
 }
 
+# fetch URL FILE [progress]: with "progress", show a progress bar when a
+# terminal is there to see it.
 fetch() {
+	bar=0
+	[ "${3:-}" = progress ] && [ -t 2 ] && bar=1
 	if command -v curl >/dev/null 2>&1; then
-		curl -fsSL --retry 3 -o "$2" "$1"
+		if [ "$bar" = 1 ]; then
+			curl -fL --retry 3 --progress-bar -o "$2" "$1"
+		else
+			curl -fsSL --retry 3 -o "$2" "$1"
+		fi
 	elif command -v wget >/dev/null 2>&1; then
-		wget -q -O "$2" "$1"
+		if [ "$bar" = 1 ] && wget --help 2>&1 | grep -q -- --show-progress; then
+			wget -q --show-progress -O "$2" "$1"
+		else
+			wget -q -O "$2" "$1"
+		fi
 	else
 		die "curl or wget is needed to download degoploy"
 	fi

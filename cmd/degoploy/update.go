@@ -21,9 +21,12 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/degovan/degoploy/internal/node"
 )
 
 // releasesURL is where releases are published; DEGOPLOY_DOWNLOAD_URL points
@@ -86,8 +89,15 @@ func runUpdate(args []string) error {
 	}
 	defer os.RemoveAll(tmp)
 	bin := filepath.Join(tmp, "degoploy")
-	err = working("Downloading degoploy "+tag, func(ctx context.Context) error {
-		return downloadRelease(ctx, tag, bin)
+	var done, total atomic.Int64
+	status := func() string {
+		if done.Load() == 0 {
+			return ""
+		}
+		return node.ProgressLabel(done.Load(), total.Load())
+	}
+	err = workingWith("Downloading degoploy "+tag, status, func(ctx context.Context) error {
+		return downloadRelease(ctx, tag, bin, func(d, t int64) { done.Store(d); total.Store(t) })
 	})
 	if err != nil {
 		return err
@@ -141,10 +151,10 @@ func latestRelease(ctx context.Context) (string, error) {
 
 // downloadRelease fetches the tarball for this machine, checks it against
 // SHA256SUMS, and extracts the binary to dst.
-func downloadRelease(ctx context.Context, tag, dst string) error {
+func downloadRelease(ctx context.Context, tag, dst string, progress func(done, total int64)) error {
 	file := "degoploy-linux-" + runtime.GOARCH + ".tar.gz"
 	base := releasesURL() + "/download/" + tag
-	sums, err := fetch(ctx, base+"/SHA256SUMS")
+	sums, err := fetch(ctx, base+"/SHA256SUMS", nil)
 	if err != nil {
 		return err
 	}
@@ -158,7 +168,7 @@ func downloadRelease(ctx context.Context, tag, dst string) error {
 	if want == "" {
 		return fmt.Errorf("%s is not listed in %s/SHA256SUMS", file, base)
 	}
-	tarball, err := fetch(ctx, base+"/"+file)
+	tarball, err := fetch(ctx, base+"/"+file, progress)
 	if err != nil {
 		return err
 	}
@@ -195,7 +205,8 @@ func downloadRelease(ctx context.Context, tag, dst string) error {
 	}
 }
 
-func fetch(ctx context.Context, url string) ([]byte, error) {
+// fetch downloads url, reporting progress (when set) as the body arrives.
+func fetch(ctx context.Context, url string, progress func(done, total int64)) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -208,7 +219,22 @@ func fetch(ctx context.Context, url string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download %s: %s", url, resp.Status)
 	}
-	return io.ReadAll(resp.Body)
+	if progress == nil {
+		return io.ReadAll(resp.Body)
+	}
+	var buf bytes.Buffer
+	chunk := make([]byte, 64<<10)
+	for {
+		n, err := resp.Body.Read(chunk)
+		buf.Write(chunk[:n])
+		progress(int64(buf.Len()), resp.ContentLength)
+		if err == io.EOF {
+			return buf.Bytes(), nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("download %s: %w", url, err)
+		}
+	}
 }
 
 // olderVersion reports whether a sorts before b, comparing the numbers of
