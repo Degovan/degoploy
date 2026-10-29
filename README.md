@@ -20,7 +20,7 @@ trigger rules per project, deploy key SSH per project, live log, multi role, dan
 
 ```bash
 make build          # tygo -> build UI -> bin/degoploy (CGO_ENABLED=0, statis)
-make dist           # tarball rilis linux/amd64 + linux/arm64 di release/ (untuk install.sh)
+make dist           # tarball rilis linux/amd64 + linux/arm64 di release/
 ```
 
 Tanpa `make`:
@@ -39,10 +39,14 @@ cp degoploy.example.yaml degoploy.yaml   # sesuaikan
 ./bin/degoploy serve --config degoploy.yaml
 ```
 
-Untuk server produksi pakai `install.sh` dari tarball rilis (systemd, user khusus, `/etc/degoploy`);
-lihat [docs/INSTALL.md](docs/INSTALL.md).
+Di server produksi, jalankan binary-nya di terminal (`./degoploy` atau `degoploy` bila sudah di
+`/usr/local/bin`): ia memasang dirinya sebagai service systemd dengan user khusus dan `/etc/degoploy`,
+lalu membuat admin pertama. Lihat [docs/INSTALL.md](docs/INSTALL.md).
 
-Perintah CLI lain: `user passwd`, `user list`, `backup`, `config check`, `version`. Semua opsi config bisa
+Perintah CLI lain: `setup`, `status`, `user` (menu interaktif), `user passwd|role|disable|enable|list`,
+`backup`, `config check`, `version`; lihat `degoploy help`. Flag yang tidak diberikan ditanyakan lewat form
+di terminal. Saat service jalan, CLI memakai socket admin-nya, jadi anggota grup `degoploy` tidak perlu
+`sudo`. Semua opsi config bisa
 di-override lewat env `DEGOPLOY_*` (mis. `DEGOPLOY_LISTEN`, `DEGOPLOY_DATA_DIR`,
 `DEGOPLOY_OIDC_CLIENT_SECRET`). Variabel `DEGOPLOY_*` tidak pernah diteruskan ke script deploy.
 
@@ -103,8 +107,9 @@ Untuk mencoba SSO saat dev, `redirect_url` harus memakai alamat dev server, mis.
 ## Struktur
 
 ```
-cmd/degoploy/        CLI: serve, user, backup, config check, version
-deploy/              install.sh + degoploy.service
+cmd/degoploy/        CLI: serve, setup, status, user, backup, config check, version
+internal/admin/      socket admin untuk CLI (user, status, backup, config check) + fallback in-process
+deploy/              degoploy.service + template config (di-embed untuk degoploy setup), install.sh
 internal/config/     YAML + env
 internal/store/      SQLite (modernc, tanpa CGO) + migrasi embed
 internal/auth/       password, session cookie, CSRF, RBAC, OIDC (oidctest: IdP palsu untuk test)

@@ -46,8 +46,11 @@ const str = (v: unknown) => (typeof v === 'string' ? v : v == null ? '' : String
 export function describe(e: AuditEntry, names: Map<string, string>): AuditSentence {
 	const d = e.detail;
 	const person = (username: string) => names.get(username) || (username ? `@${username}` : '');
+	// Changes made with the degoploy CLI carry the Linux account that ran it.
+	const cli = d.via === 'cli' ? `${str(d.os_user) || 'someone'} (CLI)` : '';
 	const actor =
 		person(e.username) ||
+		cli ||
 		(e.action === 'auth.login_failed' && str(d.username)
 			? `@${str(d.username)}`
 			: e.user_id

@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/degovan/degoploy/internal/admin"
 	"github.com/degovan/degoploy/internal/api"
 	"github.com/degovan/degoploy/internal/audit"
 	"github.com/degovan/degoploy/internal/auth"
@@ -29,6 +30,7 @@ type Server struct {
 	hub     *realtime.Hub
 	deploys *deploy.Service
 	http    *http.Server
+	admin   http.Handler
 }
 
 // deployGrace is how long running deployments may finish during shutdown.
@@ -39,6 +41,7 @@ func New(cfg *config.Config, st *store.Store, box *secrets.Box, version string) 
 	hub := realtime.NewHub()
 	projects := project.NewManager(st, cfg.DataDir)
 	deploys := deploy.NewService(st, projects, hub, box, cfg.MaxParallel)
+	auditLog := audit.New(st)
 	var sso *auth.OIDCProvider
 	if cfg.OIDC.Enabled {
 		sso = auth.NewOIDCProvider(cfg.OIDC)
@@ -48,7 +51,7 @@ func New(cfg *config.Config, st *store.Store, box *secrets.Box, version string) 
 		Store:    st,
 		Sessions: sessions,
 		Authz:    &auth.Authorizer{},
-		Audit:    audit.New(st),
+		Audit:    auditLog,
 		Projects: projects,
 		Deploys:  deploys,
 		Hub:      hub,
@@ -73,6 +76,9 @@ func New(cfg *config.Config, st *store.Store, box *secrets.Box, version string) 
 		api:     a,
 		hub:     hub,
 		deploys: deploys,
+		admin: admin.NewHandler(admin.Deps{
+			Config: cfg, Store: st, Audit: auditLog, Version: version, Started: time.Now(),
+		}),
 		http: &http.Server{
 			Addr:              cfg.Listen,
 			Handler:           h,
@@ -90,6 +96,7 @@ func (s *Server) Run(ctx context.Context) error {
 		return fmt.Errorf("start deploy runner: %w", err)
 	}
 	go s.housekeeping(ctx)
+	s.serveAdmin(ctx)
 
 	errc := make(chan error, 1)
 	go func() {
@@ -112,6 +119,26 @@ func (s *Server) Run(ctx context.Context) error {
 	s.hub.CloseAll()
 	s.deploys.Shutdown(deployGrace)
 	return err
+}
+
+// serveAdmin opens the socket the CLI uses. Deployments do not depend on it, so
+// a failure is logged instead of stopping the service.
+func (s *Server) serveAdmin(ctx context.Context) {
+	path := s.cfg.AdminSocket
+	if path == "off" {
+		return
+	}
+	l, err := admin.Listen(path)
+	if err != nil {
+		slog.Warn("admin socket unavailable; the CLI needs sudo -u degoploy", "err", err)
+		return
+	}
+	slog.Info("admin socket ready", "path", path)
+	go func() {
+		if err := admin.Serve(ctx, l, s.admin); err != nil {
+			slog.Error("admin socket", "err", err)
+		}
+	}()
 }
 
 func (s *Server) housekeeping(ctx context.Context) {

@@ -26,8 +26,12 @@ type Config struct {
 	// SecretKey is the base64 AES-256 key that encrypts project secrets. Empty
 	// means a key file in the data dir, created on first start.
 	SecretKey string `yaml:"secret_key"`
-	OIDC      OIDC   `yaml:"oidc"`
-	SMTP      SMTP   `yaml:"smtp"`
+	// AdminSocket is the Unix socket the CLI uses to reach the running service.
+	// Empty means $RUNTIME_DIRECTORY/admin.sock under systemd, else
+	// <data_dir>/admin.sock; "off" disables it.
+	AdminSocket string `yaml:"admin_socket"`
+	OIDC        OIDC   `yaml:"oidc"`
+	SMTP        SMTP   `yaml:"smtp"`
 
 	// Parsed from TrustedProxies by Load.
 	TrustedPrefixes []netip.Prefix `yaml:"-"`
@@ -146,6 +150,7 @@ func applyEnv(cfg *Config) error {
 		"DEGOPLOY_DATA_DIR":           &cfg.DataDir,
 		"DEGOPLOY_BASE_URL":           &cfg.BaseURL,
 		"DEGOPLOY_SECRET_KEY":         &cfg.SecretKey,
+		"DEGOPLOY_ADMIN_SOCKET":       &cfg.AdminSocket,
 		"DEGOPLOY_OIDC_ISSUER":        &cfg.OIDC.Issuer,
 		"DEGOPLOY_OIDC_CLIENT_ID":     &cfg.OIDC.ClientID,
 		"DEGOPLOY_OIDC_CLIENT_SECRET": &cfg.OIDC.ClientSecret,
@@ -213,6 +218,13 @@ func (c *Config) finalize() error {
 		errs = append(errs, errors.New("session_ttl must be >= 1m"))
 	}
 	c.BaseURL = strings.TrimRight(c.BaseURL, "/")
+	if c.AdminSocket == "" && c.DataDir != "" {
+		dir := c.DataDir
+		if rt, _, _ := strings.Cut(os.Getenv("RUNTIME_DIRECTORY"), ":"); rt != "" {
+			dir = rt
+		}
+		c.AdminSocket = filepath.Join(dir, "admin.sock")
+	}
 
 	c.TrustedPrefixes = c.TrustedPrefixes[:0]
 	for _, s := range c.TrustedProxies {

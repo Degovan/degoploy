@@ -240,8 +240,8 @@ func (a *API) acceptInvite(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Username = strings.TrimSpace(req.Username)
 	req.DisplayName = strings.TrimSpace(req.DisplayName)
-	if !usernameRe.MatchString(req.Username) {
-		validationError(w, "username", "use 2–64 letters, digits, dots, dashes or underscores")
+	if !auth.ValidUsername(req.Username) {
+		validationError(w, "username", auth.UsernameRule)
 		return
 	}
 	hash, err := auth.HashPassword(req.Password)

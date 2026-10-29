@@ -2,11 +2,20 @@ package auth
 
 import (
 	"errors"
+	"regexp"
 
 	"golang.org/x/crypto/bcrypt"
 )
 
 const bcryptCost = 12
+
+var usernameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$`)
+
+// UsernameRule describes what ValidUsername accepts.
+const UsernameRule = "use 2–64 letters, digits, dots, dashes or underscores"
+
+// ValidUsername reports whether s can be a username.
+func ValidUsername(s string) bool { return usernameRe.MatchString(s) }
 
 // MinPasswordLen is enforced for local accounts.
 const MinPasswordLen = 10

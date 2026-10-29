@@ -13,6 +13,10 @@ EnvironmentFile=-/etc/degoploy/degoploy.env
 WorkingDirectory=/var/lib/degoploy
 StateDirectory=degoploy
 StateDirectoryMode=0700
+# /run/degoploy/admin.sock: the CLI talks to the service through it. Members of
+# the degoploy group may use it, so they manage degoploy without sudo.
+RuntimeDirectory=degoploy
+RuntimeDirectoryMode=0750
 UMask=0022
 
 Restart=on-failure

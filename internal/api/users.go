@@ -3,7 +3,6 @@ package api
 import (
 	"errors"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -28,8 +27,6 @@ func (a *API) registerUsers(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/audit", need(auth.ActionAuditView, a.listAudit))
 	mux.Handle("GET /api/v1/audit/summary", need(auth.ActionAuditView, a.auditSummary))
 }
-
-var usernameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$`)
 
 func validationError(w http.ResponseWriter, field, msg string) {
 	httpx.JSON(w, http.StatusUnprocessableEntity, httpx.ErrorBody{Error: msg, Code: "validation", Field: field})
@@ -58,8 +55,8 @@ func (a *API) createUser(w http.ResponseWriter, r *http.Request) {
 	req.Email = strings.TrimSpace(req.Email)
 	req.DisplayName = strings.TrimSpace(req.DisplayName)
 	switch {
-	case !usernameRe.MatchString(req.Username):
-		validationError(w, "username", "use 2–64 letters, digits, dots, dashes or underscores")
+	case !auth.ValidUsername(req.Username):
+		validationError(w, "username", auth.UsernameRule)
 		return
 	case req.Email != "" && !strings.Contains(req.Email, "@"):
 		validationError(w, "email", "is not a valid email address")

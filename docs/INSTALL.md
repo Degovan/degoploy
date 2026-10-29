@@ -13,26 +13,46 @@ Panduan memasang degoploy di server Linux sebagai service systemd, di belakang r
 
 degoploy adalah satu binary statis (UI sudah ter-embed); tidak perlu Go/Node di server.
 
-## 2. Instal dari rilis
+## 2. Instal
+
+degoploy memasang dirinya sendiri. Taruh binary di server lalu jalankan di terminal:
 
 ```bash
 # ganti versi/arsitektur sesuai file rilis
 tar xzf degoploy-<versi>-linux-amd64.tar.gz
 cd degoploy-<versi>-linux-amd64
 sha256sum -c ../SHA256SUMS --ignore-missing      # opsional, bila SHA256SUMS ikut diunduh
-sudo ./install.sh --base-url https://deploy.example.com --admin admin
+./degoploy
 ```
 
-`install.sh` akan:
+Bila binary sudah Anda pindahkan ke `/usr/local/bin`, cukup ketik `degoploy`. Di server yang belum
+terpasang, perintah itu menawarkan instalasi dan melanjutkan lewat `sudo` (password Anda ditanyakan
+sekali). Lalu ia menanyakan alamat listen, URL publik, apakah Anda boleh menjalankan `degoploy` tanpa
+`sudo`, dan bila perlu memasang `git` + `ssh` lewat package manager. Setelah service jalan, ia meminta
+admin pertama dan menampilkan alamat web. Selesai, tidak ada langkah manual lain.
 
-1. membuat user sistem `degoploy` (tanpa login shell),
-2. memasang binary ke `/usr/local/bin/degoploy`,
-3. menulis `/etc/degoploy/degoploy.yaml` dan `/etc/degoploy/degoploy.env` **jika belum ada**,
-4. menjalankan `degoploy config check`,
-5. dengan `--admin NAMA`: membuat admin lokal (password ditanyakan),
-6. memasang `degoploy.service`, lalu `enable` + `start`.
+`degoploy setup` (sama dengan `sudo ./install.sh` dari tarball) melakukan semuanya:
 
-Opsi lain: `--listen 127.0.0.1:9000`, `--no-start`, `--binary PATH`.
+1. memasang `git` dan `ssh` bila belum ada (apt-get, dnf, yum, zypper, pacman, atau apk),
+2. membuat user sistem `degoploy` (tanpa login shell),
+3. memasukkan user yang menjalankan `sudo` ke grup `degoploy` (`--operator NAMA` untuk user lain,
+   `--no-operator` untuk melewati),
+4. memasang binary ke `/usr/local/bin/degoploy`,
+5. menulis `/etc/degoploy/degoploy.yaml` dan `/etc/degoploy/degoploy.env` **jika belum ada**, lalu
+   memeriksanya,
+6. memasang `degoploy.service`, lalu `enable` + `start`, dan menunggu sampai service menjawab,
+7. membuat admin pertama bila belum ada.
+
+Untuk otomasi, beri flag dan `--yes`; password admin dibaca dari stdin:
+
+```bash
+echo "$ADMIN_PW" | sudo ./degoploy setup --yes --base-url https://deploy.example.com --admin admin
+```
+
+Opsi lain: `--listen 127.0.0.1:9000`, `--no-start`. Setiap langkah memeriksa dulu, jadi menjalankan
+`sudo degoploy setup` lagi juga memperbaiki izin file dan unit yang berubah.
+
+Grup baru aktif setelah logout lalu login lagi (atau `newgrp degoploy`).
 
 ### Build sendiri
 
@@ -45,20 +65,40 @@ make dist            # release/degoploy-<versi>-linux-{amd64,arm64}.tar.gz + SHA
 | Path | Isi | Izin |
 |---|---|---|
 | `/usr/local/bin/degoploy` | binary | `0755` root |
-| `/etc/degoploy/degoploy.yaml` | konfigurasi | `0640` root:degoploy |
-| `/etc/degoploy/degoploy.env` | secret (`DEGOPLOY_OIDC_SECRET=…`) | `0640` root:degoploy |
+| `/etc/degoploy/` | folder konfigurasi | `0750` degoploy:degoploy |
+| `/etc/degoploy/degoploy.yaml` | konfigurasi (halaman *SSO* dan *Email* menyimpan ke sini) | `0640` degoploy:degoploy |
+| `/etc/degoploy/degoploy.env` | secret (`DEGOPLOY_OIDC_SECRET=…`), dibaca systemd | `0600` root |
 | `/var/lib/degoploy/` | database, deploy key, script, log | `0700` degoploy |
+| `/run/degoploy/admin.sock` | socket untuk CLI `degoploy` | `0660` degoploy:degoploy |
 | `/etc/systemd/system/degoploy.service` | unit systemd | `0644` |
 
 Ubah konfigurasi lalu cek dan restart:
 
 ```bash
-sudo -u degoploy degoploy config check --config /etc/degoploy/degoploy.yaml
+degoploy config check
 sudo systemctl restart degoploy
 ```
 
-Perintah `degoploy` yang menyentuh database (`user …`, `backup`) jalankan sebagai user `degoploy`
-(`sudo -u degoploy …`), agar file yang dibuat tetap milik service.
+### Perintah `degoploy` tanpa sudo
+
+CLI berbicara dengan service yang sedang berjalan lewat `/run/degoploy/admin.sock`. Root dan anggota
+grup `degoploy` bisa memakainya tanpa `sudo` dan tanpa `--config`:
+
+```bash
+degoploy status                  # service jalan? alamat, jumlah user dan project
+degoploy user                    # menu: buat user, set password, ganti role, nonaktifkan
+degoploy user create             # flag yang tidak diberikan akan ditanyakan
+degoploy backup --output ~/degoploy.tar.gz
+degoploy config check
+```
+
+Tambahkan operator lain dengan `sudo usermod -aG degoploy NAMA` (berlaku setelah login ulang).
+Anggota grup ini setara admin degoploy: mereka bisa membuat admin dan mengambil backup berisi deploy key.
+Perubahan dari CLI tercatat di *Audit log* dengan nama user Linux-nya, misalnya `budi (CLI)`.
+
+Bila service sedang mati, CLI membuka data secara langsung; itu butuh akses user `degoploy`, jadi
+jalankan `sudo -u degoploy degoploy …` atau nyalakan service dulu. Di skrip, beri semua flag dan kirim
+password lewat stdin: `echo "$PW" | degoploy user passwd --username budi`.
 
 ## 4. Reverse proxy
 
@@ -167,11 +207,15 @@ sudo systemctl restart degoploy
 
 ## 8. Upgrade
 
-Unduh rilis baru lalu jalankan installer lagi:
+Unduh rilis baru lalu jalankan binary barunya:
 
 ```bash
-sudo ./install.sh
+./degoploy setup
 ```
+
+Ia menawarkan upgrade, mengganti `/usr/local/bin/degoploy`, dan me-restart service. Bila binary baru
+langsung Anda taruh di `/usr/local/bin` (`sudo install -m 0755 degoploy /usr/local/bin/`), jalankan
+`degoploy setup`; ia melihat service masih memakai versi lama dan menawarkan restart.
 
 Konfigurasi dan data tidak disentuh; migrasi database berjalan otomatis saat start. Deploy yang sedang
 berjalan diberi waktu 60 detik untuk selesai, antrian dilanjutkan setelah restart.
@@ -179,9 +223,7 @@ berjalan diberi waktu 60 detik untuk selesai, antrian dilanjutkan setelah restar
 ## 9. Backup & restore
 
 ```bash
-sudo install -d -o degoploy -g degoploy -m 0700 /var/backups/degoploy
-sudo -u degoploy degoploy backup --config /etc/degoploy/degoploy.yaml \
-  --output /var/backups/degoploy/backup-$(date +%F).tar.gz      # tambahkan --no-logs untuk lebih kecil
+degoploy backup --output ~/degoploy-backup-$(date +%F).tar.gz      # tambahkan --no-logs untuk lebih kecil
 ```
 
 Arsip berisi snapshot database yang konsisten (aman saat service jalan), deploy key, script managed,
@@ -199,7 +241,8 @@ sudo systemctl start degoploy
 
 ```bash
 journalctl -u degoploy -f
-sudo -u degoploy degoploy config check --config /etc/degoploy/degoploy.yaml
+degoploy status
+degoploy config check
 ```
 
 | Gejala | Penyebab umum |
@@ -212,6 +255,9 @@ sudo -u degoploy degoploy config check --config /etc/degoploy/degoploy.yaml
 | Deploy gagal `mkdir … permission denied` | User `degoploy` tidak bisa menulis ke `work_dir` |
 | Live log tidak muncul | Proxy tidak meneruskan WebSocket `/ws` |
 | Login SSO: "not in a group" | Nama group tidak ada di `role_mapping`; lihat klaim di halaman *SSO* |
+| CLI: `may not manage degoploy` | User Anda belum di grup `degoploy`: `sudo usermod -aG degoploy $USER`, lalu login ulang |
+| CLI: `login session started before that` | Sudah di grup, tapi sesi lama: logout/login atau `newgrp degoploy` |
+| Halaman *SSO*/*Email* gagal menyimpan | `/etc/degoploy` bukan milik `degoploy`; jalankan `sudo degoploy setup` lagi |
 
 ## 11. Uninstall
 

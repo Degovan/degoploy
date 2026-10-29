@@ -2,7 +2,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -12,33 +11,41 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
-	"text/tabwriter"
 
-	"golang.org/x/term"
+	"charm.land/lipgloss/v2"
 
-	"github.com/degovan/degoploy/internal/auth"
 	"github.com/degovan/degoploy/internal/config"
 	"github.com/degovan/degoploy/internal/secrets"
 	"github.com/degovan/degoploy/internal/server"
-	"github.com/degovan/degoploy/internal/store"
 )
 
 // version is set at build time via -ldflags "-X main.version=...".
 var version = "dev"
 
-const usage = `degoploy — webhook deploy runner
-
-Usage:
-  degoploy [serve] [--config FILE]           run the server (default)
-  degoploy user create --username NAME [--role admin|deployer|viewer] [--email E]
-  degoploy user passwd --username NAME
-  degoploy user list
-  degoploy backup [--output FILE.tar.gz] [--no-logs]
-  degoploy config check
-  degoploy version
-
-Global flag --config may also be set with DEGOPLOY_CONFIG.
-`
+func usage() string {
+	cmd := func(c, desc string) string { return "  " + blue.Render(fmt.Sprintf("%-40s", c)) + desc + "\n" }
+	return bold.Render("degoploy") + " — webhook deploy runner " + muted.Render(version) + "\n\n" +
+		bold.Render("Install") + "\n" +
+		cmd("setup [--yes] [--base-url URL]", "install or upgrade degoploy on this server, then create") +
+		cmd("", "the first admin; asks for sudo when needed") +
+		"\n" + bold.Render("Manage") + muted.Render("  as root or a member of the degoploy group, no sudo needed") + "\n" +
+		cmd("status", "is the service running, and where") +
+		cmd("user", "pick a user action from a menu") +
+		cmd("user list", "list users") +
+		cmd("user create [--username N] [--role R]", "add a user with a password") +
+		cmd("user passwd [--username N]", "set a user's password") +
+		cmd("user role [--username N] [--role R]", "change a user's role") +
+		cmd("user disable|enable [--username N]", "block or allow sign-in") +
+		cmd("config check [--config FILE]", "validate the configuration") +
+		cmd("backup [--output FILE] [--no-logs]", "archive the data directory") +
+		"\n" + bold.Render("Run") + "\n" +
+		cmd("serve [--config FILE] [--debug]", "run the server (what systemd runs)") +
+		cmd("version", "print the version") +
+		"\n" + muted.Render("Missing flags are asked for in a terminal. Scripts pass flags and pipe passwords on stdin.") + "\n" +
+		muted.Render("Run without a command in a terminal, degoploy installs itself or shows its status.") + "\n" +
+		muted.Render("--config (DEGOPLOY_CONFIG) defaults to "+defaultConfig+" when present,") + "\n" +
+		muted.Render("--socket (DEGOPLOY_SOCKET) to "+defaultSocket+".") + "\n"
+}
 
 func main() {
 	args := os.Args[1:]
@@ -46,12 +53,31 @@ func main() {
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		cmd, args = args[0], args[1:]
 	}
+	// Typed in a terminal, plain "degoploy" installs itself the first time and
+	// shows the status after that. systemd and scripts run "serve" explicitly.
+	bare := len(os.Args) == 1 && interactive() && os.Getenv("DEGOPLOY_CONFIG") == ""
+	if bare {
+		cmd = "status"
+		if !installedHere() {
+			cmd = "setup"
+		}
+	}
+	if cmd == "serve" && len(args) > 0 && (args[0] == "-h" || args[0] == "--help") {
+		cmd = "help"
+	}
 
 	var err error
 	switch cmd {
 	case "serve":
 		err = runServe(args)
-	case "user":
+	case "setup":
+		err = runSetup(args)
+	case "status":
+		err = runStatus(args)
+		if bare && err == nil {
+			lipgloss.Println("\n" + muted.Render("degoploy help lists every command."))
+		}
+	case "user", "users":
 		err = runUser(args)
 	case "backup":
 		err = runBackup(args)
@@ -60,39 +86,24 @@ func main() {
 	case "version":
 		fmt.Println(version)
 	case "help":
-		fmt.Print(usage)
+		lipgloss.Print(usage())
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s", cmd, usage)
+		printError(withHint(fmt.Sprintf("unknown command %q", cmd), "Run degoploy help for the list."))
 		os.Exit(2)
 	}
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
+	switch {
+	case errors.Is(err, errCanceled):
+		lipgloss.Fprintln(os.Stderr, muted.Render("Canceled."))
+		os.Exit(130)
+	case err != nil:
+		printError(err)
 		os.Exit(1)
 	}
 }
 
-func configFlag(fs *flag.FlagSet) *string {
-	return fs.String("config", os.Getenv("DEGOPLOY_CONFIG"), "path to degoploy.yaml")
-}
-
-func openStore(ctx context.Context, cfgPath string) (*config.Config, *store.Store, error) {
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		return nil, nil, err
-	}
-	if err := server.EnsureDataDir(cfg.DataDir); err != nil {
-		return nil, nil, err
-	}
-	st, err := store.Open(ctx, cfg.DBPath())
-	if err != nil {
-		return nil, nil, err
-	}
-	return &cfg, st, nil
-}
-
 func runServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	cfgPath := configFlag(fs)
+	cfgPath := fs.String("config", os.Getenv("DEGOPLOY_CONFIG"), "path to degoploy.yaml")
 	debug := fs.Bool("debug", os.Getenv("DEGOPLOY_DEBUG") != "", "verbose logging")
 	fs.Parse(args)
 
@@ -112,7 +123,7 @@ func runServe(args []string) error {
 	defer st.Close()
 
 	if n, err := st.CountUsers(ctx); err == nil && n == 0 {
-		slog.Warn("no users yet; create an admin with: degoploy user create --username admin --role admin")
+		slog.Warn("no users yet; create the first admin with: degoploy setup")
 	}
 
 	key, err := secrets.LoadKey(cfg.SecretKey, cfg.SecretKeyPath())
@@ -137,126 +148,4 @@ func runServe(args []string) error {
 
 	slog.Info("starting degoploy", "version", version)
 	return server.New(cfg, st, box, version).Run(ctx)
-}
-
-func runUser(args []string) error {
-	if len(args) == 0 {
-		return errors.New("usage: degoploy user create|passwd|list")
-	}
-	sub, args := args[0], args[1:]
-	fs := flag.NewFlagSet("user "+sub, flag.ExitOnError)
-	cfgPath := configFlag(fs)
-	username := fs.String("username", "", "username")
-	role := fs.String("role", string(store.RoleAdmin), "role: admin, deployer or viewer")
-	email := fs.String("email", "", "email address")
-	fs.Parse(args)
-
-	ctx := context.Background()
-	_, st, err := openStore(ctx, *cfgPath)
-	if err != nil {
-		return err
-	}
-	defer st.Close()
-
-	switch sub {
-	case "create":
-		if *username == "" {
-			return errors.New("--username is required")
-		}
-		r := store.Role(*role)
-		if !r.Valid() {
-			return fmt.Errorf("invalid role %q", *role)
-		}
-		pw, err := readNewPassword()
-		if err != nil {
-			return err
-		}
-		hash, err := auth.HashPassword(pw)
-		if err != nil {
-			return err
-		}
-		u := &store.User{
-			Username:     *username,
-			Email:        *email,
-			DisplayName:  *username,
-			AuthProvider: store.ProviderLocal,
-			PasswordHash: hash,
-			Role:         r,
-		}
-		if err := st.CreateUser(ctx, u); err != nil {
-			if errors.Is(err, store.ErrDuplicate) {
-				return fmt.Errorf("user %q already exists", *username)
-			}
-			return err
-		}
-		fmt.Printf("created user %q (role %s)\n", u.Username, u.Role)
-
-	case "passwd":
-		u, err := st.UserByUsername(ctx, *username)
-		if err != nil {
-			return fmt.Errorf("user %q: %w", *username, err)
-		}
-		if u.AuthProvider != store.ProviderLocal {
-			return fmt.Errorf("user %q signs in via %s and has no local password", u.Username, u.AuthProvider)
-		}
-		pw, err := readNewPassword()
-		if err != nil {
-			return err
-		}
-		hash, err := auth.HashPassword(pw)
-		if err != nil {
-			return err
-		}
-		if err := st.SetUserPassword(ctx, u.ID, hash, false); err != nil {
-			return err
-		}
-		if err := st.DeleteUserSessions(ctx, u.ID); err != nil {
-			return err
-		}
-		fmt.Printf("password updated for %q; existing sessions revoked\n", u.Username)
-
-	case "list":
-		users, err := st.ListUsers(ctx)
-		if err != nil {
-			return err
-		}
-		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(tw, "ID\tUSERNAME\tROLE\tPROVIDER\tDISABLED")
-		for _, u := range users {
-			fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%v\n", u.ID, u.Username, u.Role, u.AuthProvider, u.Disabled)
-		}
-		tw.Flush()
-
-	default:
-		return fmt.Errorf("unknown user subcommand %q", sub)
-	}
-	return nil
-}
-
-// readNewPassword prompts twice on a terminal, or reads one line from piped stdin.
-func readNewPassword() (string, error) {
-	fd := int(os.Stdin.Fd())
-	if !term.IsTerminal(fd) {
-		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
-		if err != nil && line == "" {
-			return "", fmt.Errorf("read password from stdin: %w", err)
-		}
-		return strings.TrimRight(line, "\r\n"), nil
-	}
-	fmt.Fprint(os.Stderr, "Password: ")
-	p1, err := term.ReadPassword(fd)
-	fmt.Fprintln(os.Stderr)
-	if err != nil {
-		return "", err
-	}
-	fmt.Fprint(os.Stderr, "Confirm:  ")
-	p2, err := term.ReadPassword(fd)
-	fmt.Fprintln(os.Stderr)
-	if err != nil {
-		return "", err
-	}
-	if string(p1) != string(p2) {
-		return "", errors.New("passwords do not match")
-	}
-	return string(p1), nil
 }

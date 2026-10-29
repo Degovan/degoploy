@@ -1,0 +1,30 @@
+# degoploy configuration, written by degoploy setup. Values like ${VAR} are read
+# from the environment (see {{.EnvFile}}). Check it with: degoploy config check
+#
+# The SSO and Email pages save their settings back into this file.
+listen: {{quote .Listen}}
+data_dir: {{.DataDir}}
+# Public URL behind your reverse proxy; https:// enables Secure cookies.
+base_url: {{quote .BaseURL}}
+# Maximum deployments running at the same time across all projects.
+max_parallel: 2
+# Proxies whose X-Forwarded-For header is trusted (the reverse proxy on this host).
+trusted_proxies: [127.0.0.1/32, "::1/128"]
+session_ttl: 168h
+local_login: true
+# Project secrets are encrypted with {{.DataDir}}/secret.key, created on first
+# start. Back it up: without it, stored secrets cannot be decrypted.
+
+oidc:
+  enabled: false
+  provider_name: Casdoor
+  issuer: https://sso.example.com
+  client_id: degoploy
+  client_secret: ${DEGOPLOY_OIDC_SECRET}
+  redirect_url: {{.RedirectURL}}
+  scopes: [openid, profile, email]
+  groups_claim: groups
+  role_mapping:
+    "my-org/degoploy-admins": admin
+    "my-org/devops": deployer
+  sync_role_on_login: true
