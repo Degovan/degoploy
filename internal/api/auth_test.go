@@ -20,6 +20,7 @@ import (
 	"github.com/degovan/degoploy/internal/realtime"
 	"github.com/degovan/degoploy/internal/secrets"
 	"github.com/degovan/degoploy/internal/store"
+	"github.com/degovan/degoploy/internal/toolchain"
 )
 
 func newTestServer(t *testing.T) (*httptest.Server, *store.Store) {
@@ -65,6 +66,9 @@ func newTestServerWith(t *testing.T, configure func(cfg *config.Config, baseURL 
 		Config: &cfg, Store: st, Sessions: sessions,
 		Authz: &auth.Authorizer{}, Audit: audit.New(st), Version: "test",
 		Projects: projects, Deploys: deploys, Hub: hub, OIDC: sso, Secrets: box,
+		Runtimes: toolchain.NewSet(cfg.DataDir, toolchain.Options{
+			NodeMirror: cfg.NodeMirror, PHPMirror: cfg.PHPMirror, ComposerURL: cfg.ComposerURL, NoSystem: true,
+		}),
 	})
 	mux := http.NewServeMux()
 	a.Register(mux)

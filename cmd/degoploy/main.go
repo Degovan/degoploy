@@ -37,10 +37,10 @@ func usage() string {
 		cmd("user passwd [--username N]", "set a user's password") +
 		cmd("user role [--username N] [--role R]", "change a user's role") +
 		cmd("user disable|enable [--username N]", "block or allow sign-in") +
-		cmd("node", "Node.js versions for deploy scripts") +
-		cmd("node install|remove|default VERSION", "e.g. 22, 20.11.1 or lts; default none clears it") +
-		cmd("node update", "move each installed line to its latest patch") +
-		cmd("node cancel [VERSION]", "stop a download in progress (ctrl+c does too)") +
+		cmd("node|php", "Node.js and PHP versions for deploy scripts") +
+		cmd("node|php install|remove|default VERSION", "e.g. node 22, php 8.3; default none clears it") +
+		cmd("node|php update", "move each downloaded line to its latest patch") +
+		cmd("node|php cancel [VERSION]", "stop a download in progress (ctrl+c does too)") +
 		cmd("config check [--config FILE]", "validate the configuration") +
 		cmd("backup [--output FILE] [--no-logs]", "archive the data directory") +
 		"\n" + bold.Render("Run") + "\n" +
@@ -86,8 +86,8 @@ func main() {
 		}
 	case "user", "users":
 		err = runUser(args)
-	case "node":
-		err = runNode(args)
+	case "node", "php":
+		err = runRuntime(runtimeCmds[cmd], args)
 	case "backup":
 		err = runBackup(args)
 	case "config":

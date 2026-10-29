@@ -1,4 +1,4 @@
-package node
+package toolchain
 
 import (
 	"archive/tar"
@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degovan/degoploy/internal/node/nodetest"
+	"github.com/degovan/degoploy/internal/toolchain/toolchaintest"
 )
 
 func TestRange(t *testing.T) {
@@ -79,21 +79,26 @@ func TestParseSpec(t *testing.T) {
 	}
 }
 
-func TestDetect(t *testing.T) {
+func TestDetectNode(t *testing.T) {
 	dir := t.TempDir()
-	if s, _ := Detect(dir); s != "" {
-		t.Fatalf("empty dir gave %q", s)
+	var n NodeJS
+	if s, _, uses := n.Detect(dir); s != "" || uses {
+		t.Fatalf("empty dir gave %q %v", s, uses)
+	}
+	os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"app"}`), 0o644)
+	if s, _, uses := n.Detect(dir); s != "" || !uses {
+		t.Fatalf("package.json without a version: %q %v", s, uses)
 	}
 	os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"engines":{"node":">=20"}}`), 0o644)
-	if s, src := Detect(dir); s != ">=20" || src != "package.json engines.node" {
+	if s, src, _ := n.Detect(dir); s != ">=20" || src != "package.json engines.node" {
 		t.Fatalf("engines: %q %q", s, src)
 	}
 	os.WriteFile(filepath.Join(dir, ".node-version"), []byte("v20.11.1\n"), 0o644)
-	if s, src := Detect(dir); s != "v20.11.1" || src != ".node-version" {
+	if s, src, _ := n.Detect(dir); s != "v20.11.1" || src != ".node-version" {
 		t.Fatalf(".node-version: %q %q", s, src)
 	}
 	os.WriteFile(filepath.Join(dir, ".nvmrc"), []byte("# pinned\n\nlts/iron # for now\n"), 0o644)
-	if s, src := Detect(dir); s != "lts/iron" || src != ".nvmrc" {
+	if s, src, _ := n.Detect(dir); s != "lts/iron" || src != ".nvmrc" {
 		t.Fatalf(".nvmrc: %q %q", s, src)
 	}
 }
@@ -106,15 +111,15 @@ func v(s string) Version {
 	return x
 }
 
-func TestInstallResolveUpdate(t *testing.T) {
+func TestNodeInstallResolveUpdate(t *testing.T) {
 	ctx := context.Background()
-	mirror := nodetest.NewMirror(t,
-		nodetest.Release{Version: "v24.1.0", Date: "2026-05-01"},
-		nodetest.Release{Version: "v22.12.0", LTS: "Jod", Date: "2026-04-01"},
-		nodetest.Release{Version: "v22.11.0", LTS: "Jod", Date: "2026-01-01"},
-		nodetest.Release{Version: "v20.19.0", LTS: "Iron", Date: "2026-03-01"},
+	mirror := toolchaintest.NewNodeMirror(t,
+		toolchaintest.Release{Version: "v24.1.0", Date: "2026-05-01"},
+		toolchaintest.Release{Version: "v22.12.0", LTS: "Jod", Date: "2026-04-01"},
+		toolchaintest.Release{Version: "v22.11.0", LTS: "Jod", Date: "2026-01-01"},
+		toolchaintest.Release{Version: "v20.19.0", LTS: "Iron", Date: "2026-03-01"},
 	)
-	m := New(filepath.Join(t.TempDir(), "node"), mirror.URL)
+	m := New(NodeJS{}, filepath.Join(t.TempDir(), "node"), mirror.URL)
 
 	// Nothing installed: "22" means the newest 22.x release.
 	got, installed, err := m.Resolve(ctx, "22")
@@ -149,7 +154,7 @@ func TestInstallResolveUpdate(t *testing.T) {
 	if got, _, _ := m.Resolve(ctx, "lts"); got != v("22.11.0") {
 		t.Fatalf("Resolve(lts) = %v", got)
 	}
-	out, err := os.ReadFile(filepath.Join(m.BinDir(v("22.11.0")), "npm"))
+	out, err := os.ReadFile(filepath.Join(m.BinDir(Installed{Version: v("22.11.0")}), "npm"))
 	if err != nil || !strings.Contains(string(out), "npm") {
 		t.Fatalf("npm symlink: %q %v", out, err)
 	}
@@ -175,11 +180,11 @@ func TestInstallResolveUpdate(t *testing.T) {
 	}
 
 	// A version a project pins exactly is kept by update.
-	mirror2 := nodetest.NewMirror(t,
-		nodetest.Release{Version: "v20.19.1", LTS: "Iron"},
-		nodetest.Release{Version: "v20.19.0", LTS: "Iron"},
+	mirror2 := toolchaintest.NewNodeMirror(t,
+		toolchaintest.Release{Version: "v20.19.1", LTS: "Iron"},
+		toolchaintest.Release{Version: "v20.19.0", LTS: "Iron"},
 	)
-	m2 := New(filepath.Join(t.TempDir(), "node"), mirror2.URL)
+	m2 := New(NodeJS{}, filepath.Join(t.TempDir(), "node"), mirror2.URL)
 	m2.Install(ctx, v("20.19.0"), nil)
 	changes, err = m2.Update(ctx, func(x Version) bool { return x == v("20.19.0") }, nil)
 	if err != nil || len(changes) != 1 || changes[0].Removed {
@@ -199,9 +204,9 @@ func TestInstallResolveUpdate(t *testing.T) {
 }
 
 func TestInstallRejectsBadChecksum(t *testing.T) {
-	mirror := nodetest.NewMirror(t, nodetest.Release{Version: "v22.11.0", LTS: "Jod"})
+	mirror := toolchaintest.NewNodeMirror(t, toolchaintest.Release{Version: "v22.11.0", LTS: "Jod"})
 	mirror.Corrupt = "v22.11.0"
-	m := New(filepath.Join(t.TempDir(), "node"), mirror.URL)
+	m := New(NodeJS{}, filepath.Join(t.TempDir(), "node"), mirror.URL)
 	err := m.Install(context.Background(), v("22.11.0"), nil)
 	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
 		t.Fatalf("Install = %v", err)
@@ -229,14 +234,14 @@ func TestExtractRefusesEscapes(t *testing.T) {
 		gz.Close()
 		archive := filepath.Join(t.TempDir(), "a.tar.gz")
 		os.WriteFile(archive, buf.Bytes(), 0o644)
-		if err := extract(archive, filepath.Join(t.TempDir(), "root")); err == nil {
+		if err := extract(archive, filepath.Join(t.TempDir(), "root"), true); err == nil {
 			t.Errorf("%s (%s) was extracted", h.Name, h.Linkname)
 		}
 	}
 }
 
 func TestCancelInstall(t *testing.T) {
-	name := "node-v22.11.0-" + nodetest.Platform() + ".tar.gz"
+	name := "node-v22.11.0-" + toolchaintest.Platform() + ".tar.gz"
 	started := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -254,7 +259,7 @@ func TestCancelInstall(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	m := New(filepath.Join(t.TempDir(), "node"), srv.URL)
+	m := New(NodeJS{}, filepath.Join(t.TempDir(), "node"), srv.URL)
 
 	if m.Cancel(v("22.11.0")) {
 		t.Fatal("Cancel found an install before one started")

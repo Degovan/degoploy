@@ -1,4 +1,4 @@
-package node
+package toolchain
 
 import (
 	"errors"
@@ -258,3 +258,5 @@ func bump(v Version, n int) Version {
 	}
 	return Version{v[0], v[1], v[2] + 1}
 }
+
+func equalFold(a, b string) bool { return strings.EqualFold(a, b) }

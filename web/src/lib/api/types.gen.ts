@@ -72,13 +72,9 @@ export interface Project {
 	timeout_sec: number /* int */;
 	enabled: boolean;
 	/**
-	 * NodeVersion is "auto", "none" or a version spec such as "22" or "lts".
+	 * Runtimes holds the project's setting for each runtime, in display order.
 	 */
-	node_version: string;
-	/**
-	 * NodeUsed is the Node.js version the latest deployment ran with ("" if none).
-	 */
-	node_used: string;
+	runtimes: ProjectRuntime[];
 	created_at: string;
 	updated_at: string;
 	/**
@@ -483,7 +479,11 @@ export interface UpdateProjectRequest {
 	auto_pull?: boolean;
 	timeout_sec?: number /* int */;
 	enabled?: boolean;
-	node_version?: string;
+	/**
+	 * Runtimes changes the settings of the runtimes it names: "auto",
+	 * "off" or a version spec.
+	 */
+	runtimes?: { [key: string]: string };
 }
 /**
  * UpdateUserRequest is a partial update; omitted fields keep their value.
@@ -572,40 +572,61 @@ export interface OIDCDiscovery {
 	checked_at: string;
 }
 /**
- * NodeStatus is the Node.js page: the versions installed for deploy scripts.
+ * ProjectRuntime is a project's setting for one runtime.
  */
-export interface NodeStatus {
+export interface ProjectRuntime {
+	name: string;
+	/**
+	 * Spec is "auto" (use it when the repository does), "off", or a version
+	 * spec such as "22" or "8.3".
+	 */
+	spec: string;
+	/**
+	 * Used is the version the latest deployment ran with ("" if none).
+	 */
+	used: string;
+}
+/**
+ * RuntimeStatus is one runtime on the Runtimes page.
+ */
+export interface RuntimeStatus {
+	name: string;
+	title: string;
 	/**
 	 * Platform is the build degoploy downloads, such as "linux-x64".
 	 */
 	platform: string;
 	mirror: string;
 	/**
-	 * Default is the spec used by projects on "auto" whose repository names
-	 * no version; "" when none is set.
+	 * Verified: downloads are checked against checksums the source publishes.
+	 */
+	verified: boolean;
+	/**
+	 * Enabled: when off, no deployment uses the runtime.
+	 */
+	enabled: boolean;
+	/**
+	 * Default is the spec for projects on "auto" whose repository uses the
+	 * runtime without naming a version; "" when none is set.
 	 */
 	default: string;
-	installed: NodeVersion[];
+	installed: RuntimeVersion[];
 	total_size: number /* int64 */;
 	/**
 	 * Installing lists downloads in progress, started here, from the CLI or by a deployment.
 	 */
-	installing: NodeProgress[];
+	installing: RuntimeProgress[];
 }
-export interface NodeProgress {
-	version: string;
-	phase: 'downloading' | 'unpacking';
-	done: number /* int64 */;
-	/**
-	 * Total is 0 when the mirror does not say how big the download is.
-	 */
-	total: number /* int64 */;
-}
-export interface NodeVersion {
+export interface RuntimeVersion {
 	version: string;
 	lts: string;
 	size: number /* int64 */;
 	installed_at: string;
+	/**
+	 * System versions come with the operating system (at Path) and are not removable.
+	 */
+	system: boolean;
+	path: string;
 	/**
 	 * Default: the default spec picks this version.
 	 */
@@ -619,26 +640,38 @@ export interface NodeVersion {
 	 */
 	pinned: string[];
 }
+export interface RuntimeProgress {
+	version: string;
+	phase: 'downloading' | 'unpacking';
+	done: number /* int64 */;
+	/**
+	 * Total is 0 when the source does not say how big the download is.
+	 */
+	total: number /* int64 */;
+}
 /**
- * NodeRelease is the newest release of one major line.
+ * RuntimeRelease is the newest release of one line (Node.js 22, PHP 8.3).
  */
-export interface NodeRelease {
+export interface RuntimeRelease {
 	version: string;
 	lts: string;
 	date: string;
 	installed: boolean;
 }
 /**
- * NodeSpecRequest names a version: "22", "20.11.1", "lts" or "" (default only).
+ * RuntimeSpecRequest names a version: "22", "8.3", "lts", or "" (default only).
  */
-export interface NodeSpecRequest {
+export interface RuntimeSpecRequest {
 	spec: string;
 }
-export interface NodeUpdateResult {
-	changes: NodeChange[];
-	status: NodeStatus;
+export interface RuntimeEnabledRequest {
+	enabled: boolean;
 }
-export interface NodeChange {
+export interface RuntimeUpdateResult {
+	changes: RuntimeChange[];
+	status: RuntimeStatus;
+}
+export interface RuntimeChange {
 	from: string;
 	to: string;
 	/**

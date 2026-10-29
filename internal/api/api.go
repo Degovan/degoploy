@@ -3,7 +3,6 @@ package api
 
 import (
 	"net/http"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -12,11 +11,11 @@ import (
 	"github.com/degovan/degoploy/internal/config"
 	"github.com/degovan/degoploy/internal/deploy"
 	"github.com/degovan/degoploy/internal/httpx"
-	"github.com/degovan/degoploy/internal/node"
 	"github.com/degovan/degoploy/internal/project"
 	"github.com/degovan/degoploy/internal/realtime"
 	"github.com/degovan/degoploy/internal/secrets"
 	"github.com/degovan/degoploy/internal/store"
+	"github.com/degovan/degoploy/internal/toolchain"
 )
 
 type API struct {
@@ -29,7 +28,7 @@ type API struct {
 	deploys  *deploy.Service
 	hub      *realtime.Hub
 	secrets  *secrets.Box
-	node     *node.Manager
+	runtimes *toolchain.Set
 	version  string
 
 	// signInMu guards cfg.LocalLogin, cfg.OIDC and oidc, which the SSO page
@@ -57,13 +56,15 @@ type Deps struct {
 	Hub      *realtime.Hub
 	Secrets  *secrets.Box
 	OIDC     *auth.OIDCProvider
-	Node     *node.Manager
+	Runtimes *toolchain.Set
 	Version  string
 }
 
 func New(d Deps) *API {
-	if d.Node == nil {
-		d.Node = node.New(filepath.Join(d.Config.DataDir, "node"), d.Config.NodeMirror)
+	if d.Runtimes == nil {
+		d.Runtimes = toolchain.NewSet(d.Config.DataDir, toolchain.Options{
+			NodeMirror: d.Config.NodeMirror, PHPMirror: d.Config.PHPMirror, ComposerURL: d.Config.ComposerURL,
+		})
 	}
 	a := &API{
 		cfg:          d.Config,
@@ -78,7 +79,7 @@ func New(d Deps) *API {
 		hookLimiter:  httpx.NewRateLimiter(500*time.Millisecond, 60), // burst 60, then 120/min per IP
 		hub:          d.Hub,
 		secrets:      d.Secrets,
-		node:         d.Node,
+		runtimes:     d.Runtimes,
 		oidc:         d.OIDC,
 		pendingSSO:   auth.NewPendingLogins(),
 	}
@@ -102,7 +103,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	a.registerUsers(mux)
 	a.registerInvites(mux)
 	a.registerEmail(mux)
-	a.registerNode(mux)
+	a.registerRuntimes(mux)
 	mux.Handle("GET /api/v1/roles", authed(a.authz.Require(auth.ActionUserManage, http.HandlerFunc(a.listRoles))))
 	a.registerOIDC(mux)
 	mux.Handle("GET /ws", http.HandlerFunc(a.websocket))

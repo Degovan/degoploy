@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/degovan/degoploy/internal/admin"
@@ -17,11 +16,11 @@ import (
 	"github.com/degovan/degoploy/internal/auth"
 	"github.com/degovan/degoploy/internal/config"
 	"github.com/degovan/degoploy/internal/deploy"
-	"github.com/degovan/degoploy/internal/node"
 	"github.com/degovan/degoploy/internal/project"
 	"github.com/degovan/degoploy/internal/realtime"
 	"github.com/degovan/degoploy/internal/secrets"
 	"github.com/degovan/degoploy/internal/store"
+	"github.com/degovan/degoploy/internal/toolchain"
 	"github.com/degovan/degoploy/internal/web"
 )
 
@@ -43,8 +42,10 @@ func New(cfg *config.Config, st *store.Store, box *secrets.Box, version string) 
 	hub := realtime.NewHub()
 	projects := project.NewManager(st, cfg.DataDir)
 	deploys := deploy.NewService(st, projects, hub, box, cfg.MaxParallel)
-	nodes := node.New(filepath.Join(cfg.DataDir, "node"), cfg.NodeMirror)
-	deploys.Node = nodes
+	runtimes := toolchain.NewSet(cfg.DataDir, toolchain.Options{
+		NodeMirror: cfg.NodeMirror, PHPMirror: cfg.PHPMirror, ComposerURL: cfg.ComposerURL,
+	})
+	deploys.Runtimes = runtimes
 	auditLog := audit.New(st)
 	var sso *auth.OIDCProvider
 	if cfg.OIDC.Enabled {
@@ -61,7 +62,7 @@ func New(cfg *config.Config, st *store.Store, box *secrets.Box, version string) 
 		Hub:      hub,
 		Secrets:  box,
 		OIDC:     sso,
-		Node:     nodes,
+		Runtimes: runtimes,
 		Version:  version,
 	})
 
@@ -82,7 +83,7 @@ func New(cfg *config.Config, st *store.Store, box *secrets.Box, version string) 
 		hub:     hub,
 		deploys: deploys,
 		admin: admin.NewHandler(admin.Deps{
-			Config: cfg, Store: st, Audit: auditLog, Node: nodes, Version: version, Started: time.Now(),
+			Config: cfg, Store: st, Audit: auditLog, Runtimes: runtimes, Version: version, Started: time.Now(),
 		}),
 		http: &http.Server{
 			Addr:              cfg.Listen,

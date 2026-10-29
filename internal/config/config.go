@@ -33,8 +33,14 @@ type Config struct {
 	// NodeMirror is where Node.js releases are downloaded from; empty means
 	// https://nodejs.org/dist. A mirror needs the same layout.
 	NodeMirror string `yaml:"node_mirror"`
-	OIDC       OIDC   `yaml:"oidc"`
-	SMTP       SMTP   `yaml:"smtp"`
+	// PHPMirror is where static PHP builds are downloaded from; empty means
+	// https://dl.static-php.dev/v3/php-bin/bulk.
+	PHPMirror string `yaml:"php_mirror"`
+	// ComposerURL is where composer.phar is downloaded from, with its SHA256
+	// at the same URL plus ".sha256sum"; empty means getcomposer.org.
+	ComposerURL string `yaml:"composer_url"`
+	OIDC        OIDC   `yaml:"oidc"`
+	SMTP        SMTP   `yaml:"smtp"`
 
 	// Parsed from TrustedProxies by Load.
 	TrustedPrefixes []netip.Prefix `yaml:"-"`
@@ -155,6 +161,8 @@ func applyEnv(cfg *Config) error {
 		"DEGOPLOY_SECRET_KEY":         &cfg.SecretKey,
 		"DEGOPLOY_ADMIN_SOCKET":       &cfg.AdminSocket,
 		"DEGOPLOY_NODE_MIRROR":        &cfg.NodeMirror,
+		"DEGOPLOY_PHP_MIRROR":         &cfg.PHPMirror,
+		"DEGOPLOY_COMPOSER_URL":       &cfg.ComposerURL,
 		"DEGOPLOY_OIDC_ISSUER":        &cfg.OIDC.Issuer,
 		"DEGOPLOY_OIDC_CLIENT_ID":     &cfg.OIDC.ClientID,
 		"DEGOPLOY_OIDC_CLIENT_SECRET": &cfg.OIDC.ClientSecret,

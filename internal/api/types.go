@@ -56,12 +56,10 @@ type Project struct {
 	AutoPull     bool   `json:"auto_pull"`
 	TimeoutSec   int    `json:"timeout_sec"`
 	Enabled      bool   `json:"enabled"`
-	// NodeVersion is "auto", "none" or a version spec such as "22" or "lts".
-	NodeVersion string `json:"node_version"`
-	// NodeUsed is the Node.js version the latest deployment ran with ("" if none).
-	NodeUsed  string `json:"node_used"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	// Runtimes holds the project's setting for each runtime, in display order.
+	Runtimes  []ProjectRuntime `json:"runtimes"`
+	CreatedAt string           `json:"created_at"`
+	UpdatedAt string           `json:"updated_at"`
 	// LastDeployment is the newest deployment, if any.
 	LastDeployment *Deployment `json:"last_deployment" tstype:"Deployment | null,required"`
 	// Health covers the last finished deployments; null when there are none.
@@ -431,7 +429,9 @@ type UpdateProjectRequest struct {
 	AutoPull     *bool   `json:"auto_pull,omitempty"`
 	TimeoutSec   *int    `json:"timeout_sec,omitempty"`
 	Enabled      *bool   `json:"enabled,omitempty"`
-	NodeVersion  *string `json:"node_version,omitempty"`
+	// Runtimes changes the settings of the runtimes it names: "auto",
+	// "off" or a version spec.
+	Runtimes map[string]string `json:"runtimes,omitempty"`
 }
 
 // UpdateUserRequest is a partial update; omitted fields keep their value.
@@ -512,33 +512,44 @@ type OIDCDiscovery struct {
 	CheckedAt             string   `json:"checked_at"`
 }
 
-// NodeStatus is the Node.js page: the versions installed for deploy scripts.
-type NodeStatus struct {
+// ProjectRuntime is a project's setting for one runtime.
+type ProjectRuntime struct {
+	Name string `json:"name"`
+	// Spec is "auto" (use it when the repository does), "off", or a version
+	// spec such as "22" or "8.3".
+	Spec string `json:"spec"`
+	// Used is the version the latest deployment ran with ("" if none).
+	Used string `json:"used"`
+}
+
+// RuntimeStatus is one runtime on the Runtimes page.
+type RuntimeStatus struct {
+	Name  string `json:"name"`
+	Title string `json:"title"`
 	// Platform is the build degoploy downloads, such as "linux-x64".
 	Platform string `json:"platform"`
 	Mirror   string `json:"mirror"`
-	// Default is the spec used by projects on "auto" whose repository names
-	// no version; "" when none is set.
-	Default   string        `json:"default"`
-	Installed []NodeVersion `json:"installed"`
-	TotalSize int64         `json:"total_size"`
+	// Verified: downloads are checked against checksums the source publishes.
+	Verified bool `json:"verified"`
+	// Enabled: when off, no deployment uses the runtime.
+	Enabled bool `json:"enabled"`
+	// Default is the spec for projects on "auto" whose repository uses the
+	// runtime without naming a version; "" when none is set.
+	Default   string           `json:"default"`
+	Installed []RuntimeVersion `json:"installed"`
+	TotalSize int64            `json:"total_size"`
 	// Installing lists downloads in progress, started here, from the CLI or by a deployment.
-	Installing []NodeProgress `json:"installing"`
+	Installing []RuntimeProgress `json:"installing"`
 }
 
-type NodeProgress struct {
-	Version string `json:"version"`
-	Phase   string `json:"phase" tstype:"'downloading' | 'unpacking'"`
-	Done    int64  `json:"done"`
-	// Total is 0 when the mirror does not say how big the download is.
-	Total int64 `json:"total"`
-}
-
-type NodeVersion struct {
+type RuntimeVersion struct {
 	Version     string `json:"version"`
 	LTS         string `json:"lts"`
 	Size        int64  `json:"size"`
 	InstalledAt string `json:"installed_at"`
+	// System versions come with the operating system (at Path) and are not removable.
+	System bool   `json:"system"`
+	Path   string `json:"path"`
 	// Default: the default spec picks this version.
 	Default bool `json:"default"`
 	// UsedBy names the projects whose latest deployment ran with this version.
@@ -547,25 +558,37 @@ type NodeVersion struct {
 	Pinned []string `json:"pinned"`
 }
 
-// NodeRelease is the newest release of one major line.
-type NodeRelease struct {
+type RuntimeProgress struct {
+	Version string `json:"version"`
+	Phase   string `json:"phase" tstype:"'downloading' | 'unpacking'"`
+	Done    int64  `json:"done"`
+	// Total is 0 when the source does not say how big the download is.
+	Total int64 `json:"total"`
+}
+
+// RuntimeRelease is the newest release of one line (Node.js 22, PHP 8.3).
+type RuntimeRelease struct {
 	Version   string `json:"version"`
 	LTS       string `json:"lts"`
 	Date      string `json:"date"`
 	Installed bool   `json:"installed"`
 }
 
-// NodeSpecRequest names a version: "22", "20.11.1", "lts" or "" (default only).
-type NodeSpecRequest struct {
+// RuntimeSpecRequest names a version: "22", "8.3", "lts", or "" (default only).
+type RuntimeSpecRequest struct {
 	Spec string `json:"spec"`
 }
 
-type NodeUpdateResult struct {
-	Changes []NodeChange `json:"changes"`
-	Status  NodeStatus   `json:"status"`
+type RuntimeEnabledRequest struct {
+	Enabled bool `json:"enabled"`
 }
 
-type NodeChange struct {
+type RuntimeUpdateResult struct {
+	Changes []RuntimeChange `json:"changes"`
+	Status  RuntimeStatus   `json:"status"`
+}
+
+type RuntimeChange struct {
 	From string `json:"from"`
 	To   string `json:"to"`
 	// Removed: From was removed; false when a project pins it.

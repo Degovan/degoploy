@@ -71,7 +71,7 @@ make dist            # release/degoploy-linux-{amd64,arm64}.tar.gz + SHA256SUMS
 | `/etc/degoploy/degoploy.yaml` | konfigurasi (halaman *SSO* dan *Email* menyimpan ke sini) | `0640` degoploy:degoploy |
 | `/etc/degoploy/degoploy.env` | secret (`DEGOPLOY_OIDC_SECRET=…`), dibaca systemd | `0600` root |
 | `/var/lib/degoploy/` | database, deploy key, script, log | `0700` degoploy |
-| `/var/lib/degoploy/node/` | versi Node.js untuk deploy script (diunduh otomatis) | `0755` degoploy |
+| `/var/lib/degoploy/node/`, `php/` | versi Node.js dan PHP untuk deploy script (diunduh otomatis) | `0755` degoploy |
 | `/run/degoploy/admin.sock` | socket untuk CLI `degoploy` | `0660` degoploy:degoploy |
 | `/etc/systemd/system/degoploy.service` | unit systemd | `0644` |
 
@@ -199,24 +199,31 @@ Catatan:
 - Unit sengaja tidak memakai `NoNewPrivileges`/`ProtectSystem` agar `sudo` dan penulisan ke `/var/www`
   tetap bisa; aktifkan lewat drop-in (`systemctl edit degoploy`) jika script Anda tidak membutuhkannya.
 
-### Node.js untuk deploy script
+### Node.js dan PHP untuk deploy script
 
-Script berjalan sebagai user `degoploy`, jadi nvm milik user lain tidak terbaca. degoploy mengelola
-Node.js sendiri: setiap project memakai versi dari `.nvmrc`, `.node-version` atau `engines.node`
-(atau versi yang dipilih di Project settings), dan versi itu diunduh dari nodejs.org saat pertama kali
-dibutuhkan, dicek SHA256-nya, lalu disimpan di `/var/lib/degoploy/node/`. `node`, `npm`, `npx`,
-`pnpm` dan `yarn` langsung ada di `PATH` script tanpa memuat nvm. Kelola versinya di halaman
-**Node.js** atau lewat CLI:
+Script berjalan sebagai user `degoploy`, jadi nvm atau phpenv milik user lain tidak terbaca. degoploy
+mengelola runtime-nya sendiri, dan setiap project hanya memakai yang dibutuhkannya:
+
+- **Node.js**: versi dari `.nvmrc`, `.node-version` atau `package.json`, diunduh dari nodejs.org (dicek
+  SHA256) saat pertama kali dibutuhkan. pnpm dan yarn tersedia lewat corepack.
+- **PHP**: versi dari `.php-version` atau `composer.json`. PHP yang sudah terpasang di server (misalnya
+  `php8.3` dari apt atau PPA ondrej) dipakai lebih dulu, karena sama dengan PHP-FPM dan ekstensinya.
+  Versi lain diunduh sebagai build statis dari static-php.dev (tanpa root, tanpa compile, dicek
+  SHA256 untuk build terbaru). Composer
+  diunduh dari getcomposer.org (dicek SHA256).
+
+Di Project settings, setiap runtime bisa **Auto** (aktif bila repo memakainya), versi tertentu, atau
+**Off**. Kelola versinya di halaman **Runtimes** atau lewat CLI:
 
 ```bash
-degoploy node install 22     # atau lts, 20.11.1
-degoploy node default 22     # untuk project yang repo-nya tidak menyebut versi
-degoploy node update         # naikkan setiap versi ke patch terbaru
+degoploy php install 8.3     # node install 22, lts, 20.11.1
+degoploy php default 8.3     # untuk project yang repo-nya tidak menyebut versi
+degoploy node update         # naikkan setiap versi unduhan ke patch terbaru
 ```
 
-Server tanpa akses ke nodejs.org bisa memakai mirror dengan struktur yang sama:
-`node_mirror: https://mirror.example.com/nodejs` di `degoploy.yaml` (atau `DEGOPLOY_NODE_MIRROR`).
-Panduan lengkap: [docs/guide/nodejs.md](guide/nodejs.md).
+Server tanpa akses internet bisa memakai mirror dengan struktur yang sama: `node_mirror`, `php_mirror`
+dan `composer_url` di `degoploy.yaml` (atau `DEGOPLOY_NODE_MIRROR`, `DEGOPLOY_PHP_MIRROR`,
+`DEGOPLOY_COMPOSER_URL`). Panduan lengkap: [docs/guide/runtimes.md](guide/runtimes.md).
 
 ## 7. SSO (Casdoor)
 

@@ -38,7 +38,7 @@ flowchart TB
 - [Choosing when deploys run (trigger rules)](trigger-rules.md)
 - [Writing the deploy script](deploy-script.md)
 - [Variables and secrets](variables-and-secrets.md)
-- [Node.js versions](nodejs.md)
+- [Runtimes: Node.js and PHP versions](runtimes.md)
 - [Following and managing deployments](deployments.md)
 - [Project settings](project-settings.md)
 

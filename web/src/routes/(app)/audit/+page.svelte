@@ -53,7 +53,7 @@
 		'invite.': MailIcon,
 		'sso.': FingerprintIcon,
 		'email.': ServerIcon,
-		'node.': HexagonIcon
+		'runtime.': HexagonIcon
 	};
 	const iconFor = (action: string) =>
 		action === 'auth.logout' ? LogOutIcon : categoryIcons[categoryOf(action) ?? 'auth.'];

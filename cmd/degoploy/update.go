@@ -26,7 +26,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/degovan/degoploy/internal/node"
+	"github.com/degovan/degoploy/internal/toolchain"
 )
 
 // releasesURL is where releases are published; DEGOPLOY_DOWNLOAD_URL points
@@ -94,7 +94,7 @@ func runUpdate(args []string) error {
 		if done.Load() == 0 {
 			return ""
 		}
-		return node.ProgressLabel(done.Load(), total.Load())
+		return toolchain.ProgressLabel(done.Load(), total.Load())
 	}
 	err = workingWith("Downloading degoploy "+tag, status, func(ctx context.Context) error {
 		return downloadRelease(ctx, tag, bin, func(d, t int64) { done.Store(d); total.Store(t) })

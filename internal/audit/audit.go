@@ -52,11 +52,12 @@ const (
 	EmailUpdate = "email.update"
 	EmailTest   = "email.test"
 
-	NodeInstall = "node.install"
-	NodeRemove  = "node.remove"
-	NodeDefault = "node.default"
-	NodeUpdate  = "node.update"
-	NodeCancel  = "node.cancel"
+	RuntimeInstall = "runtime.install"
+	RuntimeRemove  = "runtime.remove"
+	RuntimeDefault = "runtime.default"
+	RuntimeUpdate  = "runtime.update"
+	RuntimeCancel  = "runtime.cancel"
+	RuntimeEnable  = "runtime.enable"
 )
 
 // sensitive actions touch credentials or access; the audit log highlights them.

@@ -14,12 +14,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/degovan/degoploy/internal/node"
-	"github.com/degovan/degoploy/internal/node/nodetest"
 	"github.com/degovan/degoploy/internal/project"
 	"github.com/degovan/degoploy/internal/realtime"
 	"github.com/degovan/degoploy/internal/secrets"
 	"github.com/degovan/degoploy/internal/store"
+	"github.com/degovan/degoploy/internal/toolchain"
+	"github.com/degovan/degoploy/internal/toolchain/toolchaintest"
 )
 
 // fixture is a git repository served over git's "dumb" HTTP protocol plus a
@@ -412,63 +412,77 @@ exit 4`, 0)
 	}
 }
 
-func TestDeployNode(t *testing.T) {
+func TestDeployRuntimes(t *testing.T) {
 	f := newFixture(t)
-	mirror := nodetest.NewMirror(t,
-		nodetest.Release{Version: "v22.12.0", LTS: "Jod"},
-		nodetest.Release{Version: "v20.19.0", LTS: "Iron"},
+	nodeMirror := toolchaintest.NewNodeMirror(t,
+		toolchaintest.Release{Version: "v22.12.0", LTS: "Jod"},
+		toolchaintest.Release{Version: "v20.19.0", LTS: "Iron"},
 	)
-	f.svc.Node = node.New(filepath.Join(f.root, "data", "node"), mirror.URL)
+	phpMirror := toolchaintest.NewPHPMirror(t, "8.4.23", "8.3.30")
+	data := filepath.Join(f.root, "data")
+	f.svc.Runtimes = toolchain.NewSetOf(
+		toolchain.New(toolchain.NodeJS{}, filepath.Join(data, "node"), nodeMirror.URL),
+		toolchain.New(&toolchain.PHP{ComposerURL: phpMirror.URL + "/composer.phar"}, filepath.Join(data, "php"), phpMirror.URL),
+	)
 	ctx := context.Background()
-	script := `echo "node=$(node) npm=$(npm) prompt=$COREPACK_ENABLE_DOWNLOAD_PROMPT" > node.txt`
+	script := `echo "node=$(node 2>/dev/null) npm=$(npm 2>/dev/null) php=$(php -n -r 'echo PHP_VERSION;' 2>/dev/null) composer=$(command -v composer >/dev/null && echo yes)" > runtimes.txt`
+	got := func(p *store.Project) string {
+		b, _ := os.ReadFile(filepath.Join(p.WorkDir, "runtimes.txt"))
+		return string(b)
+	}
 
-	// .nvmrc in the repository picks the version, which is installed on first use.
-	f.commit(".nvmrc", "lts/iron\n", "pin node")
+	// A repository without package.json or composer.json uses neither.
 	p := f.project("web", script, 0)
 	d := f.wait(f.enqueue(p, nil).ID, store.DeploySuccess, store.DeployFailed)
+	if log := readLog(t, d); strings.Contains(log, "Installing") || strings.Contains(log, "node: ") || strings.Contains(log, "php: ") {
+		t.Fatalf("a runtime was set up for a bare repository:\n%s", log)
+	}
+
+	// .nvmrc and composer.json pick the versions, installed on first use.
+	f.commit(".nvmrc", "lts/iron\n", "pin node")
+	f.commit("composer.json", `{"require":{"php":"~8.3.0"}}`, "add composer.json")
+	d = f.wait(f.enqueue(p, nil).ID, store.DeploySuccess, store.DeployFailed)
 	log := readLog(t, d)
-	if d.Status != store.DeploySuccess {
-		t.Fatalf("status %s\n%s", d.Status, log)
+	if d.Status != store.DeploySuccess || got(p) != "node=v20.19.0 npm=npm php=8.3.30 composer=yes\n" {
+		t.Fatalf("status %s, runtimes.txt %q\n%s", d.Status, got(p), log)
 	}
-	if got, _ := os.ReadFile(filepath.Join(p.WorkDir, "node.txt")); string(got) != "node=v20.19.0 npm=npm prompt=0\n" {
-		t.Fatalf("node.txt = %q\n%s", got, log)
-	}
-	for _, want := range []string{"Installing Node.js v20.19.0", "checksum verified", "node: v20.19.0 (lts/iron from .nvmrc)"} {
+	for _, want := range []string{"Installing Node.js v20.19.0", "node: v20.19.0 (lts/iron from .nvmrc)",
+		"Installing PHP 8.3.30", "php: 8.3.30 (~8.3.0 from composer.json require.php)", "Composer installed"} {
 		if !strings.Contains(log, want) {
 			t.Fatalf("log lacks %q:\n%s", want, log)
 		}
 	}
-	if p, _ = f.store.ProjectByID(ctx, p.ID); p.NodeUsed != "v20.19.0" {
-		t.Fatalf("node_used = %q", p.NodeUsed)
+	rt, _ := f.store.ProjectRuntimes(ctx, p.ID)
+	if rt["node"].Used != "v20.19.0" || rt["php"].Used != "8.3.30" {
+		t.Fatalf("used = %+v", rt)
 	}
 
-	// The next deployment reuses the installed version.
+	// The next deployment reuses both.
 	d = f.wait(f.enqueue(p, nil).ID, store.DeploySuccess, store.DeployFailed)
-	if log := readLog(t, d); strings.Contains(log, "Installing") || mirror.Downloads.Load() != 1 {
-		t.Fatalf("installed again (%d downloads):\n%s", mirror.Downloads.Load(), log)
+	if log := readLog(t, d); strings.Contains(log, "Installing") || nodeMirror.Downloads.Load() != 1 || phpMirror.Downloads.Load() != 1 {
+		t.Fatalf("installed again:\n%s", log)
 	}
 
-	// Without a version in the repository, the default version applies.
+	// A package.json without a version takes the default version.
 	run(t, f.src, "git", "rm", "-q", ".nvmrc")
-	f.commit("README.md", "v2\n", "unpin node")
-	f.store.SetSetting(ctx, store.SettingNodeDefault, "22")
+	f.commit("package.json", `{"name":"web"}`, "add package.json")
+	f.store.SetSetting(ctx, store.SettingRuntimeDefault("node"), "22")
 	d = f.wait(f.enqueue(p, nil).ID, store.DeploySuccess, store.DeployFailed)
 	if log := readLog(t, d); !strings.Contains(log, "node: v22.12.0 (22 from the default version)") {
 		t.Fatalf("default version not used:\n%s", log)
 	}
 
-	// "none" leaves PATH alone: no managed version, whatever node the server has.
-	p.NodeVersion = node.None
-	f.store.UpdateProject(ctx, p)
+	// Off leaves a runtime out; so does turning the runtime off for the server.
+	f.store.SetProjectRuntime(ctx, p.ID, "php", toolchain.Off)
+	f.store.SetSetting(ctx, store.SettingRuntimeEnabled("node"), "false")
 	d = f.wait(f.enqueue(p, nil).ID, store.DeploySuccess, store.DeployFailed)
-	got, _ := os.ReadFile(filepath.Join(p.WorkDir, "node.txt"))
-	if log := readLog(t, d); strings.Contains(log, "node: ") || strings.Contains(string(got), "node=v22.12.0") {
-		t.Fatalf("managed node used with none: %q\n%s", got, log)
+	if log := readLog(t, d); strings.Contains(log, "node: ") || strings.Contains(log, "php: ") {
+		t.Fatalf("runtimes set up while off:\n%s", log)
 	}
+	f.store.SetSetting(ctx, store.SettingRuntimeEnabled("node"), "")
 
 	// A version that does not exist fails the deployment with a clear reason.
-	p.NodeVersion = "19"
-	f.store.UpdateProject(ctx, p)
+	f.store.SetProjectRuntime(ctx, p.ID, "node", "19")
 	d = f.wait(f.enqueue(p, nil).ID, store.DeploySuccess, store.DeployFailed)
 	if d.Status != store.DeployFailed || !strings.Contains(d.Error, "Node.js 19 (from project settings)") {
 		t.Fatalf("status %s error %q", d.Status, d.Error)

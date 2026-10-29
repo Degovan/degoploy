@@ -52,7 +52,7 @@ func InputFrom(p *store.Project) Input {
 	return Input{
 		Name: p.Name, Slug: p.Slug, Provider: p.Provider, RepoURL: p.RepoURL, WorkDir: p.WorkDir,
 		ScriptSource: p.ScriptSource, ScriptPath: p.ScriptPath, AutoPull: p.AutoPull,
-		TimeoutSec: p.TimeoutSec, Enabled: p.Enabled, NodeVersion: p.NodeVersion,
+		TimeoutSec: p.TimeoutSec, Enabled: p.Enabled,
 	}
 }
 
@@ -90,6 +90,9 @@ func (m *Manager) Create(ctx context.Context, in Input, userID int64) (*store.Pr
 	}
 
 	err := m.initDir(ctx, p, userID)
+	if err == nil {
+		err = m.saveRuntimes(ctx, p, in)
+	}
 	if err == nil && firstRule != nil {
 		firstRule.ProjectID = p.ID
 		err = m.store.CreateRule(ctx, firstRule)
@@ -145,6 +148,9 @@ func (m *Manager) Update(ctx context.Context, p *store.Project, in Input, userID
 		return err
 	}
 	*p = next
+	if err := m.saveRuntimes(ctx, p, in); err != nil {
+		return err
+	}
 
 	if switchedToManaged {
 		if _, err := os.Stat(m.ManagedScriptPath(p)); errors.Is(err, os.ErrNotExist) {
@@ -218,7 +224,16 @@ func apply(p *store.Project, in Input) {
 	p.AutoPull = in.AutoPull
 	p.TimeoutSec = in.TimeoutSec
 	p.Enabled = in.Enabled
-	p.NodeVersion = in.NodeVersion
+}
+
+// saveRuntimes stores the runtime settings in carries.
+func (m *Manager) saveRuntimes(ctx context.Context, p *store.Project, in Input) error {
+	for name, spec := range in.Runtimes {
+		if err := m.store.SetProjectRuntime(ctx, p.ID, name, spec); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func keyComment(p *store.Project) string { return "degoploy-" + p.Slug }

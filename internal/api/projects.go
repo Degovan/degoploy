@@ -92,10 +92,16 @@ func (a *API) listProjects(w http.ResponseWriter, r *http.Request) {
 		httpx.InternalError(w, r, err)
 		return
 	}
+	runtimes, err := a.store.AllProjectRuntimes(r.Context())
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
 	out := []Project{}
 	for _, p := range projects {
 		if a.authz.Can(r.Context(), ident.User, auth.ActionProjectView, p.ID) {
 			dto := toProject(p)
+			dto.Runtimes = a.projectRuntimes(runtimes[p.ID])
 			if d, ok := latest[p.ID]; ok {
 				dd := toDeployment(d)
 				dto.LastDeployment = &dd
@@ -127,7 +133,12 @@ func (a *API) createProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.recordProject(r, ident.User.ID, audit.ProjectCreate, p, nil)
-	httpx.JSON(w, http.StatusCreated, toProject(p))
+	dto, err := a.projectDTO(r, p)
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusCreated, dto)
 }
 
 func (a *API) getProject(w http.ResponseWriter, r *http.Request) {
@@ -135,7 +146,11 @@ func (a *API) getProject(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	dto := toProject(p)
+	dto, err := a.projectDTO(r, p)
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
 	health, err := a.store.DeploymentHealth(r.Context(), p.ID, healthWindow)
 	if err != nil {
 		httpx.InternalError(w, r, err)
@@ -175,14 +190,22 @@ func (a *API) updateProject(w http.ResponseWriter, r *http.Request) {
 	setIf(&in.AutoPull, req.AutoPull)
 	setIf(&in.TimeoutSec, req.TimeoutSec)
 	setIf(&in.Enabled, req.Enabled)
-	setIf(&in.NodeVersion, req.NodeVersion)
+	in.Runtimes = req.Runtimes
 
-	before := toProject(p)
+	before, err := a.projectDTO(r, p)
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
 	if err := a.projects.Update(r.Context(), p, in, ident.User.ID); err != nil {
 		a.projectError(w, r, err)
 		return
 	}
-	after := toProject(p)
+	after, err := a.projectDTO(r, p)
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
 	a.recordProject(r, ident.User.ID, audit.ProjectUpdate, p, map[string]any{"changes": diffProjects(before, after)})
 	httpx.JSON(w, http.StatusOK, after)
 }
@@ -339,10 +362,20 @@ func toProject(p *store.Project) Project {
 		ID: p.ID, Slug: p.Slug, Name: p.Name, Provider: p.Provider, RepoURL: p.RepoURL,
 		WorkDir: p.WorkDir, ScriptSource: p.ScriptSource, ScriptPath: p.ScriptPath,
 		AutoPull: p.AutoPull, TimeoutSec: p.TimeoutSec, Enabled: p.Enabled,
-		NodeVersion: p.NodeVersion, NodeUsed: p.NodeUsed,
 		CreatedAt: p.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt: p.UpdatedAt.UTC().Format(time.RFC3339),
 	}
+}
+
+// projectDTO is toProject with the project's runtime settings.
+func (a *API) projectDTO(r *http.Request, p *store.Project) (Project, error) {
+	rt, err := a.store.ProjectRuntimes(r.Context(), p.ID)
+	if err != nil {
+		return Project{}, err
+	}
+	dto := toProject(p)
+	dto.Runtimes = a.projectRuntimes(rt)
+	return dto, nil
 }
 
 // diffProjects lists changed fields as {field: [old, new]} for the audit log.
@@ -362,7 +395,11 @@ func diffProjects(before, after Project) map[string][2]any {
 	add("auto_pull", before.AutoPull, after.AutoPull)
 	add("timeout_sec", before.TimeoutSec, after.TimeoutSec)
 	add("enabled", before.Enabled, after.Enabled)
-	add("node_version", before.NodeVersion, after.NodeVersion)
+	for i, r := range after.Runtimes {
+		if i < len(before.Runtimes) && before.Runtimes[i].Name == r.Name {
+			add("runtimes."+r.Name, before.Runtimes[i].Spec, r.Spec)
+		}
+	}
 	return out
 }
 

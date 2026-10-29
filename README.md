@@ -9,8 +9,9 @@ script, and watch every deployment and its log live in the browser.
 - **Deploy keys**: each project gets its own SSH key for private repositories.
 - **Deploy scripts** kept in degoploy with revisions, or read from the repository, plus variables and
   encrypted secrets.
-- **Node.js versions** per project, read from `.nvmrc` like nvm does, downloaded from nodejs.org on
-  first use and put on the script's PATH, with pnpm and yarn through corepack.
+- **Runtimes**: Node.js and PHP versions per project, read from `.nvmrc`, `.php-version` or
+  `composer.json` like nvm and phpenv do. The server's own versions are used where they fit; others are
+  downloaded on first use. pnpm and yarn come through corepack, and Composer is included.
 - **Live logs** over WebSocket, a queue per project, cancel and redeploy.
 - **Users and roles** (admin, deployer, viewer), invitations by email, and an audit log.
 - **Single sign-on** with any OIDC provider (tested with Casdoor), with groups mapped to roles.
@@ -50,7 +51,7 @@ through `/run/degoploy/admin.sock`, and changes appear in the audit log under th
 degoploy                 # in a terminal: install on a new server, otherwise show the status
 degoploy status          # is the service running, where, and how many users and projects
 degoploy user            # menu: create a user, set a password, change a role, disable or enable
-degoploy node           # Node.js versions for deploy scripts: install, default, update
+degoploy node|php       # runtime versions for deploy scripts: install, default, update
 degoploy backup          # archive of the database, deploy keys, scripts and logs
 degoploy config check    # validate the configuration
 degoploy update          # download the latest release and restart on it
@@ -143,7 +144,7 @@ git tag v1.0.1 && git push fork v1.0.1   # fork: git@github.com:irsyadulibad/deg
 ## Layout
 
 ```
-cmd/degoploy/        CLI: serve, setup, update, status, user, node, backup, config check
+cmd/degoploy/        CLI: serve, setup, update, status, user, node, php, backup, config check
 internal/admin/      admin socket API for the CLI, with an in-process fallback
 internal/api/        JSON API (/api/v1), webhooks (/hook), WebSocket (/ws) and OIDC (/auth)
 internal/audit/      audit log entries
@@ -152,7 +153,7 @@ internal/config/     YAML and environment settings, written back by the SSO and 
 internal/deploy/     per-project queue and runner (git, script, log)
 internal/gitops/     git and ssh settings for each project
 internal/mail/       SMTP client for invitations (smtptest: a fake server for tests)
-internal/node/       Node.js releases: version ranges, download and verify, picking a version
+internal/toolchain/  runtimes (Node.js, PHP): version ranges, downloads, system versions, picking one
 internal/project/    projects, deploy keys and scripts
 internal/realtime/   WebSocket hub with topics
 internal/secrets/    encryption of project secrets and sealed config values

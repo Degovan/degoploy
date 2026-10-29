@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
-	"github.com/degovan/degoploy/internal/node"
 	"github.com/degovan/degoploy/internal/store"
+	"github.com/degovan/degoploy/internal/toolchain"
 )
 
 // ValidationError points at the input field that was rejected.
@@ -34,8 +35,9 @@ type Input struct {
 	AutoPull     bool
 	TimeoutSec   int
 	Enabled      bool
-	// NodeVersion is node.Auto (the default), node.None or a version spec.
-	NodeVersion string
+	// Runtimes holds runtime settings to change, by runtime name:
+	// toolchain.Auto, toolchain.Off or a version spec. Others keep theirs.
+	Runtimes map[string]string
 	// DefaultBranch (create only) adds a first rule deploying pushes to this branch.
 	DefaultBranch string
 }
@@ -61,12 +63,15 @@ func (in *Input) normalize() {
 	in.WorkDir = strings.TrimSpace(in.WorkDir)
 	in.ScriptSource = strings.TrimSpace(in.ScriptSource)
 	in.ScriptPath = strings.TrimSpace(in.ScriptPath)
-	in.NodeVersion = strings.TrimSpace(in.NodeVersion)
-	switch low := strings.ToLower(in.NodeVersion); low {
-	case "", node.Auto:
-		in.NodeVersion = node.Auto
-	case node.None:
-		in.NodeVersion = low
+	for name, spec := range in.Runtimes {
+		spec = strings.TrimSpace(spec)
+		switch low := strings.ToLower(spec); low {
+		case "", toolchain.Auto:
+			spec = toolchain.Auto
+		case toolchain.Off, "none":
+			spec = toolchain.Off
+		}
+		in.Runtimes[name] = spec
 	}
 	if in.WorkDir != "" {
 		in.WorkDir = filepath.Clean(in.WorkDir)
@@ -110,12 +115,12 @@ func (in *Input) validate(dataDir string, creating bool) error {
 		return invalid("script_source", "must be managed or repo")
 	}
 
-	if in.NodeVersion != node.Auto && in.NodeVersion != node.None {
-		if len(in.NodeVersion) > 50 {
-			return invalid("node_version", "must be at most 50 characters")
+	for name, spec := range in.Runtimes {
+		if !slices.Contains(toolchain.Runtimes, name) {
+			return invalid("runtimes", "unknown runtime %q", name)
 		}
-		if _, err := node.ParseSpec(in.NodeVersion); err != nil {
-			return invalid("node_version", "%s", err)
+		if err := toolchain.ValidSetting(spec); err != nil {
+			return invalid("runtimes."+name, "%s", err)
 		}
 	}
 

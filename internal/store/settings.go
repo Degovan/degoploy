@@ -6,8 +6,11 @@ import (
 	"errors"
 )
 
-// Keys of the settings table.
-const SettingNodeDefault = "node.default"
+// SettingRuntimeDefault is the key of a runtime's default version spec.
+func SettingRuntimeDefault(runtime string) string { return "runtime." + runtime + ".default" }
+
+// SettingRuntimeEnabled is the key of a runtime's on/off switch ("false" turns it off).
+func SettingRuntimeEnabled(runtime string) string { return "runtime." + runtime + ".enabled" }
 
 // Setting returns a server-wide setting, or "" when it was never set.
 func (s *Store) Setting(ctx context.Context, key string) (string, error) {

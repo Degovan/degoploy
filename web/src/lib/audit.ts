@@ -11,7 +11,7 @@ export const auditCategories = [
 	{ value: 'invite.', label: 'Invites' },
 	{ value: 'sso.', label: 'Sign-in methods' },
 	{ value: 'email.', label: 'Email' },
-	{ value: 'node.', label: 'Node.js' }
+	{ value: 'runtime.', label: 'Runtimes' }
 ] as const;
 
 export type AuditCategory = (typeof auditCategories)[number]['value'];
@@ -236,41 +236,53 @@ export function describe(e: AuditEntry, names: Map<string, string>): AuditSenten
 				mono: true,
 				meta: [d.delivered ? 'delivered' : 'failed']
 			};
+		case 'runtime.install':
+		case 'runtime.remove':
+		case 'runtime.cancel':
 		case 'node.install':
-			return { actor, verb: 'installed Node.js', target: str(d.version), mono: true, meta: [] };
 		case 'node.remove':
-			return { actor, verb: 'removed Node.js', target: str(d.version), mono: true, meta: [] };
-		case 'node.cancel':
+		case 'node.cancel': {
+			const verb = { install: 'installed', remove: 'removed', cancel: 'canceled the install of' }[
+				e.action.split('.')[1] as 'install' | 'remove' | 'cancel'
+			];
 			return {
 				actor,
-				verb: 'canceled the install of Node.js',
+				verb: `${verb} ${runtimeTitle(d)}`,
 				target: str(d.version),
 				mono: true,
 				meta: []
 			};
+		}
+		case 'runtime.default':
 		case 'node.default':
 			return str(d.to)
 				? {
 						actor,
-						verb: 'set the default Node.js version to',
+						verb: `set the default ${runtimeTitle(d)} version to`,
 						target: str(d.to),
 						mono: true,
 						meta: []
 					}
-				: { actor, verb: 'cleared the default Node.js version', meta: [] };
+				: { actor, verb: `cleared the default ${runtimeTitle(d)} version`, meta: [] };
+		case 'runtime.update':
 		case 'node.update':
 			return {
 				actor,
-				verb: 'updated Node.js',
+				verb: `updated ${runtimeTitle(d)}`,
 				meta: Array.isArray(d.changes)
 					? (d.changes as { from?: string; to?: string }[]).map((c) => `${c.from} → ${c.to}`)
 					: []
 			};
+		case 'runtime.enable':
+			return { actor, verb: `turned ${runtimeTitle(d)} ${d.enabled ? 'on' : 'off'}`, meta: [] };
 		case 'invite.accept':
 			return { actor, verb: 'accepted an invite', suffix: `as ${roleLabel(d.role)}`, meta: [] };
 	}
 	return { actor, verb: e.action, target: e.target_id || undefined, mono: true, meta: [] };
 }
+
+/** The runtime an entry is about; entries from before PHP were all Node.js. */
+const runtimeTitle = (d: Record<string, unknown>) => str(d.title) || 'Node.js';
 
 /** Consecutive entries collapse when the same person repeats the same action on the same target. */
 export const sameEvent = (a: AuditEntry, b: AuditEntry) =>

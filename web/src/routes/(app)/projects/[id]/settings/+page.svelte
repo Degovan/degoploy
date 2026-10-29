@@ -4,11 +4,11 @@
 	import { resolve } from '$app/paths';
 	import { toast } from 'svelte-sonner';
 	import { ApiError, errorMessage } from '#lib/api/client.js';
-	import { majorOf, nodeApi, nodeKeys } from '#lib/api/node.js';
 	import { projectKeys, projectsApi } from '#lib/api/projects.js';
 	import type { Project, Provider, UpdateProjectRequest } from '#lib/api/types.gen.js';
 	import DeployKeyCard from '#lib/components/deploy-key-card.svelte';
 	import PageHeader from '#lib/components/page-header.svelte';
+	import ProjectRuntimesCard from '#lib/components/project-runtimes-card.svelte';
 	import ProviderIcon from '#lib/components/provider-icon.svelte';
 	import SettingsCard from '#lib/components/settings-card.svelte';
 	import WebhookCard from '#lib/components/webhook-card.svelte';
@@ -51,7 +51,6 @@
 		script_path: string;
 		auto_pull: boolean;
 		timeout_sec: number;
-		node_version: string;
 	};
 	type Field = keyof Draft;
 
@@ -64,8 +63,7 @@
 		script_source: p.script_source,
 		script_path: p.script_path || '.degoploy/deploy.sh',
 		auto_pull: p.auto_pull,
-		timeout_sec: p.timeout_sec,
-		node_version: p.node_version
+		timeout_sec: p.timeout_sec
 	});
 
 	// Each card edits its own fields of the draft and saves only those.
@@ -89,7 +87,6 @@
 		repository: ['provider', 'repo_url'],
 		workdir: ['work_dir'],
 		script: ['script_source', 'script_path', 'auto_pull'],
-		node: ['node_version'],
 		timeout: ['timeout_sec']
 	} satisfies Record<string, Field[]>;
 	type Card = keyof typeof cards;
@@ -98,7 +95,9 @@
 		!!draft &&
 		!!saved &&
 		(cards[card] as Field[]).some((f) => String(draft![f]) !== String(saved![f]));
-	const anyDirty = $derived((Object.keys(cards) as Card[]).some(dirty));
+	// The Runtimes card keeps its own draft.
+	let runtimesDirty = $state(false);
+	const anyDirty = $derived((Object.keys(cards) as Card[]).some(dirty) || runtimesDirty);
 
 	// Repository scripts only exist after a pull.
 	$effect(() => {
@@ -108,10 +107,6 @@
 	async function save(card: Card) {
 		if (!draft || !saved) return;
 		const fields = cards[card] as Field[];
-		if (card === 'node' && nodeMode === 'version' && !draft.node_version.trim()) {
-			errors = { node_version: 'Enter a version, such as 22 or lts.' };
-			return;
-		}
 		const body: Record<string, unknown> = {};
 		for (const f of fields) body[f] = f === 'timeout_sec' ? Number(draft[f]) : draft[f];
 		if (card === 'script' && draft.script_source === 'managed') delete body.script_path;
@@ -220,56 +215,6 @@
 		}
 		updateActive();
 	});
-
-	// Node.js: Auto, a version, or None. The default version is shown to admins.
-	const canNode = $derived(session.can('user.manage'));
-	const nodeStatus = createQuery(() => ({
-		queryKey: nodeKeys.status,
-		queryFn: nodeApi.status,
-		enabled: canNode
-	}));
-	// Quick picks: lts and the maintained LTS lines from nodejs.org.
-	const nodeReleases = createQuery(() => ({
-		queryKey: nodeKeys.releases,
-		queryFn: nodeApi.releases,
-		enabled: canNode,
-		staleTime: 60 * 60 * 1000,
-		retry: false
-	}));
-	const nodePicks = $derived([
-		'lts',
-		...(nodeReleases.data
-			? nodeReleases.data
-					.filter((r) => r.lts)
-					.slice(0, 3)
-					.map((r) => majorOf(r.version))
-			: ['24', '22', '20'])
-	]);
-	type NodeMode = 'auto' | 'version' | 'none';
-	const nodeMode = $derived<NodeMode>(
-		draft?.node_version === 'auto' ? 'auto' : draft?.node_version === 'none' ? 'none' : 'version'
-	);
-	let lastSpec = 'lts';
-	function setNodeMode(m: NodeMode) {
-		if (!draft || m === nodeMode) return;
-		if (nodeMode === 'version') lastSpec = draft.node_version || lastSpec;
-		draft.node_version = m === 'version' ? lastSpec : m;
-	}
-	const nodeModes: { value: NodeMode; label: string }[] = [
-		{ value: 'auto', label: 'Auto' },
-		{ value: 'version', label: 'Version' },
-		{ value: 'none', label: 'None' }
-	];
-	let nodeButtons = $state<HTMLButtonElement[]>([]);
-	function onNodeKeydown(e: KeyboardEvent) {
-		const step = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 1, ArrowUp: -1 }[e.key];
-		if (!step) return;
-		e.preventDefault();
-		const i = nodeModes.findIndex((m) => m.value === nodeMode);
-		const next = (i + step + nodeModes.length) % nodeModes.length;
-		setNodeMode(nodeModes[next]!.value);
-		nodeButtons[next]?.focus();
-	}
 
 	const input = 'h-10 bg-background px-3 dark:bg-background';
 	const mono = 'font-mono text-[13px] md:text-[13px]';
@@ -535,101 +480,7 @@
 					{@render fieldError('auto_pull')}
 				</SettingsCard>
 
-				<SettingsCard
-					title="Node.js"
-					description="The Node.js version on the deploy script's PATH, with npm, npx and corepack."
-					dirty={dirty('node')}
-					saving={saving === 'node'}
-					error={cardError('node')}
-					onsave={() => save('node')}
-				>
-					{#snippet note()}
-						{#if p.node_used}
-							The latest deployment ran with Node.js <span class="font-mono">{p.node_used}</span>.
-						{:else}
-							Installed on the first deployment that needs it.
-						{/if}
-					{/snippet}
-					<div
-						class="grid h-10 max-w-[400px] grid-cols-3 gap-0.5 rounded-md border border-input p-[3px]"
-						role="radiogroup"
-						aria-label="Node.js version"
-					>
-						{#each nodeModes as m, i (m.value)}
-							{@const on = nodeMode === m.value}
-							<button
-								bind:this={nodeButtons[i]}
-								type="button"
-								role="radio"
-								aria-checked={on}
-								tabindex={on ? 0 : -1}
-								class={cn(
-									'rounded-sm text-[13px] font-medium transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50',
-									on ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'
-								)}
-								onclick={() => setNodeMode(m.value)}
-								onkeydown={onNodeKeydown}>{m.label}</button
-							>
-						{/each}
-					</div>
-
-					{#if nodeMode === 'auto'}
-						<p class="text-[13px] text-muted-foreground/80">
-							Reads <span class="font-mono">.nvmrc</span>,
-							<span class="font-mono">.node-version</span> or
-							<span class="font-mono">engines.node</span> in
-							<span class="font-mono">package.json</span> from the repository.
-							{#if nodeStatus.data?.default}
-								Without one, the default version (Node.js {nodeStatus.data.default}) is used.
-							{:else}
-								Without one, scripts use the server's own node.
-							{/if}
-						</p>
-					{:else if nodeMode === 'version'}
-						<div class="flex flex-col gap-2">
-							<Label for="set-node" class="sr-only">Node.js version</Label>
-							<div class="flex flex-wrap items-center gap-2">
-								<Input
-									id="set-node"
-									bind:value={draft.node_version}
-									spellcheck={false}
-									autocomplete="off"
-									placeholder="22"
-									class={cn(input, mono, 'w-[200px]')}
-									aria-invalid={!!errors.node_version}
-								/>
-								{#each nodePicks as v (v)}
-									<button
-										type="button"
-										class={cn(
-											'h-7 rounded-md border px-2.5 font-mono text-xs transition-colors',
-											draft.node_version === v
-												? 'border-muted-foreground bg-muted text-foreground'
-												: 'border-input text-muted-foreground hover:text-foreground'
-										)}
-										onclick={() => (draft!.node_version = v)}>{v}</button
-									>
-								{/each}
-							</div>
-							<p class="text-[13px] text-muted-foreground/80">
-								A major version such as 22, an exact one such as 20.11.1, a range such as
-								<span class="font-mono">&gt;=20</span>, or lts.
-							</p>
-						</div>
-					{:else}
-						<p class="text-[13px] text-muted-foreground/80">
-							degoploy leaves PATH as it is: scripts use the node installed on the server, if any.
-						</p>
-					{/if}
-					{@render fieldError('node_version')}
-					{#if canNode}
-						<a
-							href={resolve('/(app)/node')}
-							class="self-start text-[13px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-							>Manage installed versions</a
-						>
-					{/if}
-				</SettingsCard>
+				<ProjectRuntimesCard project={p} bind:dirty={runtimesDirty} />
 
 				<SettingsCard
 					title="Timeout"

@@ -15,10 +15,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/degovan/degoploy/internal/node"
 	"github.com/degovan/degoploy/internal/project"
 	"github.com/degovan/degoploy/internal/secrets"
 	"github.com/degovan/degoploy/internal/store"
+	"github.com/degovan/degoploy/internal/toolchain"
 )
 
 // killGrace is how long a canceled or timed-out process group gets after SIGTERM.
@@ -69,7 +69,7 @@ func (s *Service) run(ctx context.Context, d *store.Deployment, p *store.Project
 	if err := s.store.MarkScriptStarted(context.WithoutCancel(ctx), d.ID, p.ScriptSource == store.ScriptManaged); err == nil {
 		s.notify(d.ID)
 	}
-	nodeBin, err := s.setupNode(ctx, p, w)
+	bins, runtimeEnv, err := s.setupRuntimes(ctx, p, w)
 	if err != nil {
 		return s.outcome(ctx, w, start, err)
 	}
@@ -78,8 +78,8 @@ func (s *Service) run(ctx context.Context, d *store.Deployment, p *store.Project
 	cmd := exec.CommandContext(ctx, "bash", "--noprofile", "--norc", script)
 	cmd.Dir = p.WorkDir
 	cmd.Env = s.scriptEnv(d, p, rule, vars)
-	if nodeBin != "" {
-		cmd.Env = withNode(cmd.Env, nodeBin)
+	if len(bins) > 0 {
+		cmd.Env = withRuntimes(cmd.Env, bins, runtimeEnv)
 	}
 	setProcessGroup(cmd)
 	// Secrets are masked before the last-line summary sees the output.
@@ -228,53 +228,85 @@ func (s *Service) scriptPath(p *store.Project) (string, error) {
 	return path, nil
 }
 
-// setupNode picks the Node.js version the project asks for, installs it when
-// needed, and returns its bin directory; "" when the project uses none.
-func (s *Service) setupNode(ctx context.Context, p *store.Project, w io.Writer) (string, error) {
-	if s.Node == nil || p.NodeVersion == node.None {
-		return "", nil
+// setupRuntimes picks the version of each runtime (Node.js, PHP) the project
+// uses, installs it when needed, and returns the bin directories to put first
+// on PATH and the environment the runtimes add.
+func (s *Service) setupRuntimes(ctx context.Context, p *store.Project, w io.Writer) (bins, env []string, err error) {
+	if s.Runtimes == nil {
+		return nil, nil, nil
 	}
-	spec, source := p.NodeVersion, "project settings"
-	if spec == node.Auto || spec == "" {
-		spec, source = node.Detect(p.WorkDir)
-		if spec == "" {
-			def, err := s.store.Setting(ctx, store.SettingNodeDefault)
-			if err != nil || def == "" {
-				return "", err
-			}
-			spec, source = def, "the default version"
-		}
-	}
-	v, installed, err := s.Node.Resolve(ctx, spec)
+	settings, err := s.store.ProjectRuntimes(ctx, p.ID)
 	if err != nil {
-		return "", fmt.Errorf("Node.js %s (from %s): %w", spec, source, err)
+		return nil, nil, err
 	}
-	if !installed {
-		step(w, "Installing Node.js %s", v)
-		if err := s.Node.Install(ctx, v, noteWriter{w}); err != nil {
-			return "", fmt.Errorf("install Node.js %s: %w", v, err)
+	for _, m := range s.Runtimes.All() {
+		name := m.Name()
+		if on, err := s.store.Setting(ctx, store.SettingRuntimeEnabled(name)); err != nil {
+			return nil, nil, err
+		} else if on == "false" {
+			continue
 		}
+		spec, source := settings[name].Spec, "project settings"
+		switch spec {
+		case toolchain.Off:
+			continue
+		case toolchain.Auto, "":
+			var uses bool
+			spec, source, uses = m.Kind().Detect(p.WorkDir)
+			if !uses {
+				continue
+			}
+			if spec == "" {
+				def, err := s.store.Setting(ctx, store.SettingRuntimeDefault(name))
+				if err != nil {
+					return nil, nil, err
+				}
+				if def == "" {
+					note(w, "%s: the server's own (the repository names no version and there is no default)", name)
+					continue
+				}
+				spec, source = def, "the default version"
+			}
+		}
+		v, installed, err := m.Resolve(ctx, spec)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%s %s (from %s): %w", m.Title(), spec, source, err)
+		}
+		if !installed {
+			step(w, "Installing %s %s", m.Title(), m.Label(v))
+		}
+		v, bin, err := m.Use(ctx, spec, noteWriter{w})
+		if err != nil {
+			return nil, nil, fmt.Errorf("install %s %s: %w", m.Title(), m.Label(v), err)
+		}
+		label := m.Label(v)
+		where := ""
+		if in, _ := m.Lookup(v); in.System {
+			where = "system, "
+		}
+		note(w, "%s: %s (%s%s from %s)", name, label, where, spec, source)
+		if settings[name].Used != label {
+			s.store.SetProjectRuntimeUsed(context.WithoutCancel(ctx), p.ID, name, label)
+		}
+		bins = append(bins, bin)
+		env = append(env, m.Env()...)
 	}
-	note(w, "node: %s (%s from %s)", v, spec, source)
-	if p.NodeUsed != v.String() {
-		s.store.SetProjectNodeUsed(context.WithoutCancel(ctx), p.ID, v.String())
-	}
-	return s.Node.BinDir(v), nil
+	return bins, env, nil
 }
 
-// withNode puts bin first on PATH.
-func withNode(env []string, bin string) []string {
-	out := make([]string, 0, len(env)+2)
+// withRuntimes puts bins first on PATH, in order, and adds env.
+func withRuntimes(base, bins, env []string) []string {
+	out := make([]string, 0, len(base)+len(env)+1)
 	path := "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-	for _, kv := range env {
+	for _, kv := range base {
 		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
 			path = v
 			continue
 		}
 		out = append(out, kv)
 	}
-	// corepack would otherwise ask before downloading pnpm or yarn.
-	return append(out, "PATH="+bin+string(os.PathListSeparator)+path, "COREPACK_ENABLE_DOWNLOAD_PROMPT=0")
+	out = append(out, env...)
+	return append(out, "PATH="+strings.Join(append(bins, path), string(os.PathListSeparator)))
 }
 
 // noteWriter prints each line written to it as a note.

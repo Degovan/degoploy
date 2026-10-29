@@ -19,7 +19,7 @@ export const docGroups: { title: string; icon: string; pages: string[] }[] = [
 			'trigger-rules',
 			'deploy-script',
 			'variables-and-secrets',
-			'nodejs',
+			'runtimes',
 			'deployments',
 			'project-settings'
 		]

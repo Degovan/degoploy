@@ -9,7 +9,6 @@ import (
 	"maps"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -18,8 +17,8 @@ import (
 	"github.com/degovan/degoploy/internal/auth"
 	"github.com/degovan/degoploy/internal/config"
 	"github.com/degovan/degoploy/internal/httpx"
-	"github.com/degovan/degoploy/internal/node"
 	"github.com/degovan/degoploy/internal/store"
+	"github.com/degovan/degoploy/internal/toolchain"
 )
 
 // Status describes the service the CLI reached.
@@ -72,21 +71,23 @@ type SetPasswordRequest struct {
 }
 
 type Deps struct {
-	Config  *config.Config
-	Store   *store.Store
-	Audit   *audit.Logger
-	Node    *node.Manager
-	Version string
-	Started time.Time
-	Local   bool
+	Config   *config.Config
+	Store    *store.Store
+	Audit    *audit.Logger
+	Runtimes *toolchain.Set
+	Version  string
+	Started  time.Time
+	Local    bool
 }
 
 type handler struct{ Deps }
 
 // NewHandler serves the admin API that Client calls.
 func NewHandler(d Deps) http.Handler {
-	if d.Node == nil {
-		d.Node = node.New(filepath.Join(d.Config.DataDir, "node"), d.Config.NodeMirror)
+	if d.Runtimes == nil {
+		d.Runtimes = toolchain.NewSet(d.Config.DataDir, toolchain.Options{
+			NodeMirror: d.Config.NodeMirror, PHPMirror: d.Config.PHPMirror, ComposerURL: d.Config.ComposerURL,
+		})
 	}
 	h := &handler{d}
 	mux := http.NewServeMux()
@@ -97,7 +98,7 @@ func NewHandler(d Deps) http.Handler {
 	mux.HandleFunc("PUT /v1/users/{name}/password", h.setPassword)
 	mux.HandleFunc("GET /v1/config/check", h.checkConfig)
 	mux.HandleFunc("GET /v1/backup", h.backup)
-	h.registerNode(mux)
+	h.registerRuntimes(mux)
 	return mux
 }
 

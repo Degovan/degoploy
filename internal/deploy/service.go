@@ -16,11 +16,11 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/degovan/degoploy/internal/node"
 	"github.com/degovan/degoploy/internal/project"
 	"github.com/degovan/degoploy/internal/realtime"
 	"github.com/degovan/degoploy/internal/secrets"
 	"github.com/degovan/degoploy/internal/store"
+	"github.com/degovan/degoploy/internal/toolchain"
 )
 
 // Request describes one deployment to queue.
@@ -51,8 +51,9 @@ type Service struct {
 	secrets  *secrets.Box // opens secret project variables
 	sem      chan struct{}
 
-	// Node installs the Node.js version a project asks for; nil leaves PATH alone.
-	Node *node.Manager
+	// Runtimes installs the Node.js and PHP versions a project asks for;
+	// nil leaves PATH alone.
+	Runtimes *toolchain.Set
 
 	// OnUpdate is called after every deployment state change (for realtime events).
 	OnUpdate func(*store.DeploymentView)

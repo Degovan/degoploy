@@ -1,4 +1,7 @@
-import { requirePermission } from '#lib/guard.js';
+import { redirect } from '@sveltejs/kit';
+import { resolve } from '$app/paths';
 import type { PageLoad } from './$types';
 
-export const load: PageLoad = ({ parent }) => requirePermission(parent, 'user.manage');
+// The Node.js page became the Runtimes page for Node.js.
+export const load: PageLoad = () =>
+	redirect(308, resolve('/(app)/runtimes/[name]', { name: 'node' }));
