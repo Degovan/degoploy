@@ -1,7 +1,7 @@
 #!/bin/sh
 # Install degoploy on a Linux server:
 #
-#   curl -fsSL https://raw.githubusercontent.com/Degovan/degoploy/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/irsyadulibad/degoploy/main/install.sh | sh
 #
 # It downloads the release for this machine, checks its SHA256 sum, and runs
 # degoploy setup, which asks a few questions and installs the service. Run it
@@ -11,12 +11,12 @@
 #   --yes              take the defaults; with the other degoploy setup flags
 #                      (--base-url URL, --admin NAME, ...) for scripts
 #
-# DEGOPLOY_DOWNLOAD_URL replaces https://github.com/Degovan/degoploy/releases,
+# DEGOPLOY_DOWNLOAD_URL replaces https://github.com/irsyadulibad/degoploy/releases,
 # for a mirror.
 set -eu
 
 main() {
-	base=${DEGOPLOY_DOWNLOAD_URL:-https://github.com/Degovan/degoploy/releases}
+	base=${DEGOPLOY_DOWNLOAD_URL:-https://github.com/irsyadulibad/degoploy/releases}
 	version=latest
 	assume_yes=0
 

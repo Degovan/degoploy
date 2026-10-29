@@ -29,7 +29,7 @@ import (
 // releasesURL is where releases are published; DEGOPLOY_DOWNLOAD_URL points
 // at a mirror instead. install.sh uses the same layout.
 func releasesURL() string {
-	return strings.TrimRight(cmp.Or(os.Getenv("DEGOPLOY_DOWNLOAD_URL"), "https://github.com/Degovan/degoploy/releases"), "/")
+	return strings.TrimRight(cmp.Or(os.Getenv("DEGOPLOY_DOWNLOAD_URL"), "https://github.com/irsyadulibad/degoploy/releases"), "/")
 }
 
 // runUpdate downloads a release, checks it, and hands over to its setup, which

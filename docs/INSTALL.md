@@ -18,7 +18,7 @@ degoploy adalah satu binary statis (UI sudah ter-embed); tidak perlu Go/Node di 
 Satu perintah di server, sebagai user biasa yang boleh `sudo`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Degovan/degoploy/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/irsyadulibad/degoploy/main/install.sh | sh
 ```
 
 Script itu mengunduh rilis terbaru untuk arsitektur server (amd64/arm64) dari GitHub Releases,
@@ -31,12 +31,12 @@ Versi tertentu: `… | sh -s -- --version v1.2.3`. Untuk otomasi (tanpa pertanya
 dulu lalu kirim password admin lewat stdin:
 
 ```bash
-curl -fsSLo install.sh https://raw.githubusercontent.com/Degovan/degoploy/main/install.sh
+curl -fsSLo install.sh https://raw.githubusercontent.com/irsyadulibad/degoploy/main/install.sh
 echo "$ADMIN_PW" | sh install.sh --yes --base-url https://deploy.example.com --admin admin
 ```
 
 Tanpa internet di server: unduh `degoploy-linux-amd64.tar.gz` dari halaman
-[Releases](https://github.com/Degovan/degoploy/releases), salin ke server, ekstrak, lalu jalankan
+[Releases](https://github.com/irsyadulibad/degoploy/releases), salin ke server, ekstrak, lalu jalankan
 `./degoploy` di terminal. Binary yang belum terpasang menawarkan instalasi yang sama.
 
 `degoploy setup` melakukan semuanya:

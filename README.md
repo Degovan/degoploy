@@ -50,7 +50,7 @@ Di server produksi cukup satu perintah; ia mengunduh rilis, memasang service sys
 admin pertama (detail di [docs/INSTALL.md](docs/INSTALL.md)):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Degovan/degoploy/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/irsyadulibad/degoploy/main/install.sh | sh
 ```
 
 Upgrade: `degoploy update`.
