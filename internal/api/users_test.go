@@ -145,6 +145,9 @@ func TestResetPasswordRequireChange(t *testing.T) {
 	if code := admin.do("GET", "/api/v1/users/1/sessions", "", &sessions); code != 200 || sessions.Active != 0 {
 		t.Fatalf("own sessions: %d %+v", code, sessions)
 	}
+	if code := dep.do("GET", "/api/v1/me/sessions", "", &sessions); code != 200 || sessions.Active != 1 {
+		t.Fatalf("/me/sessions: %d %+v", code, sessions)
+	}
 
 	if code := admin.do("PUT", "/api/v1/users/2/password", `{"password":"temporary-pass-1","require_change":true}`, nil); code != 204 {
 		t.Fatalf("reset: %d", code)

@@ -24,6 +24,7 @@ func (a *API) registerUsers(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/users/{uid}/sessions", need(auth.ActionUserManage, a.userSessions))
 	mux.Handle("DELETE /api/v1/users/{uid}", need(auth.ActionUserManage, a.deleteUser))
 	mux.Handle("POST /api/v1/me/password", auth.RequireAuth(http.HandlerFunc(a.changeOwnPassword)))
+	mux.Handle("GET /api/v1/me/sessions", auth.RequireAuth(http.HandlerFunc(a.ownSessions)))
 	mux.Handle("GET /api/v1/audit", need(auth.ActionAuditView, a.listAudit))
 	mux.Handle("GET /api/v1/audit/summary", need(auth.ActionAuditView, a.auditSummary))
 }
@@ -234,6 +235,17 @@ func (a *API) deleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 	a.recordUser(r, ident.User.ID, audit.UserDelete, u, map[string]any{"username": u.Username})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ownSessions counts your other sessions, which a password change signs out.
+func (a *API) ownSessions(w http.ResponseWriter, r *http.Request) {
+	ident := auth.FromContext(r.Context())
+	n, err := a.store.CountUserSessions(r.Context(), ident.User.ID, ident.Session.IDHash)
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	httpx.JSON(w, http.StatusOK, UserSessions{Active: n})
 }
 
 func (a *API) changeOwnPassword(w http.ResponseWriter, r *http.Request) {
