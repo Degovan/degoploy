@@ -16,8 +16,6 @@
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 
-	const DOCS_URL = 'https://github.com/degovan/degoploy#readme';
-
 	const projectId = $derived(page.params.id ? Number(page.params.id) : null);
 	const deploymentId = $derived(page.params.did ? Number(page.params.did) : null);
 	const isNewProject = $derived(page.route.id === '/(app)/projects/new');
@@ -164,10 +162,12 @@
 			<Button
 				variant="outline"
 				size="sm"
-				class="hidden text-[13px] font-normal sm:inline-flex"
-				href={DOCS_URL}
-				target="_blank"
-				rel="noreferrer"
+				class={cn(
+					'hidden text-[13px] font-normal sm:inline-flex',
+					page.url.pathname.startsWith('/docs') && 'bg-muted'
+				)}
+				href={resolve('/docs/[[page]]', {})}
+				aria-current={page.url.pathname.startsWith('/docs') ? 'page' : undefined}
 			>
 				Docs
 			</Button>

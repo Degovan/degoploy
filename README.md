@@ -6,6 +6,9 @@ trigger rules per project, deploy key SSH per project, live log, multi role, dan
 > Status: tahap 1–8 selesai. Instalasi di server: [docs/INSTALL.md](docs/INSTALL.md).
 > Rencana dan catatan implementasi: [docs/PLAN.md](docs/PLAN.md).
 
+**User guide** — what you can do in degoploy and how (English, also in the app under **Docs**):
+[docs/guide](docs/guide/README.md).
+
 ## Kebutuhan
 
 - Go 1.27+ (lihat `go.mod`)

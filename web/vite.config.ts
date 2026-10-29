@@ -2,7 +2,8 @@ import tailwindcss from '@tailwindcss/vite';
 import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
 import compression from 'compression';
-import { defineConfig, type Connect, type Plugin } from 'vite';
+import { fileURLToPath } from 'node:url';
+import { defineConfig, searchForWorkspaceRoot, type Connect, type Plugin } from 'vite';
 
 // The Go server listens here during `make dev`; Vite proxies backend paths to it.
 const backend = process.env.DEGOPLOY_BACKEND ?? 'http://127.0.0.1:8090';
@@ -60,6 +61,14 @@ export default defineConfig({
 		host: '0.0.0.0',
 		port: 5173,
 		strictPort: true,
+		// The user guide (../docs/guide) is bundled into the app. Allow only that folder:
+		// the dev server is reachable from the network, and the repo root holds ./data.
+		fs: {
+			allow: [
+				searchForWorkspaceRoot(process.cwd()),
+				fileURLToPath(new URL('../docs/guide', import.meta.url))
+			]
+		},
 		proxy: {
 			'/api': backend,
 			'/auth': backend,
