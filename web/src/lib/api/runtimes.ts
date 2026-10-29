@@ -32,6 +32,10 @@ export const runtimesApi = {
 /** Display names, for when the runtime list is not loaded. */
 export const runtimeTitles: Record<string, string> = { node: 'Node.js', php: 'PHP' };
 
+/** A project's runtime setting in a word: "Off", "Auto" or the version spec. */
+export const specLabel = (spec: string) =>
+	spec === 'off' ? 'Off' : spec === 'auto' ? 'Auto' : spec;
+
 /** A version's release line: "22" for Node.js, "8.3" for PHP. */
 export function lineOf(runtime: string, version: string): string {
 	const parts = version.replace(/^v/, '').split('.');

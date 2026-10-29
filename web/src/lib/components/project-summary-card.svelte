@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { runtimeTitles } from '#lib/api/runtimes.js';
 	import type { Deployment, Project } from '#lib/api/types.gen.js';
 	import HealthIcon, { healthPercent, healthSummary } from '#lib/components/health-icon.svelte';
+	import { session } from '#lib/stores/session.svelte.js';
 	import { averageStages } from '#lib/stages.js';
 	import { formatStage } from '#lib/time.js';
 	import SunIcon from '@lucide/svelte/icons/sun';
@@ -13,6 +15,13 @@
 	}: { project: Project; deployments: Deployment[]; ruleCount: number | null } = $props();
 
 	const avg = $derived(averageStages(deployments, p).run);
+	// "Node.js 22.11.0 · PHP auto": the version last used, else the setting.
+	const runtimes = $derived(
+		p.runtimes
+			.filter((r) => r.spec !== 'off')
+			.map((r) => `${runtimeTitles[r.name] ?? r.name} ${r.used || r.spec}`)
+			.join(' · ') || 'None'
+	);
 	const created = $derived(
 		new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(p.created_at))
 	);
@@ -48,6 +57,21 @@
 		{@render row('Avg. duration', avg === null ? '—' : formatStage(avg), true)}
 		{@render row('Timeout', `${p.timeout_sec}s`, true)}
 		{@render row('Before each run', p.auto_pull ? 'Update repository' : 'Nothing (script only)')}
+		<div class="flex items-center justify-between gap-4 py-2.5">
+			<dt class="shrink-0 text-muted-foreground">Runtimes</dt>
+			<dd class="min-w-0 truncate" title={runtimes}>
+				{#if session.can('project.edit')}
+					<!-- eslint-disable svelte/no-navigation-without-resolve -- resolved, plus a section hash -->
+					<a
+						href={`${resolve('/(app)/projects/[id]/settings', { id: String(p.id) })}#runtimes`}
+						class="underline-offset-4 hover:underline">{runtimes}</a
+					>
+					<!-- eslint-enable svelte/no-navigation-without-resolve -->
+				{:else}
+					{runtimes}
+				{/if}
+			</dd>
+		</div>
 		{@render row('Slug', p.slug, true)}
 		<div class="flex items-center justify-between gap-4 py-2.5">
 			<dt class="text-muted-foreground">Trigger rules</dt>

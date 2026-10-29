@@ -180,6 +180,7 @@
 		{ id: 'general', label: 'General' },
 		{ id: 'repository', label: 'Repository' },
 		{ id: 'deploy-script', label: 'Deploy Script' },
+		{ id: 'runtimes', label: 'Runtimes' },
 		...(canSecrets ? [{ id: 'deploy-key', label: 'Deploy Key & Webhook' }] : []),
 		{ id: 'danger-zone', label: 'Danger Zone' }
 	]);
@@ -480,8 +481,6 @@
 					{@render fieldError('auto_pull')}
 				</SettingsCard>
 
-				<ProjectRuntimesCard project={p} bind:dirty={runtimesDirty} />
-
 				<SettingsCard
 					title="Timeout"
 					description="Runs longer than this are stopped and marked as timed out."
@@ -516,6 +515,10 @@
 					</div>
 					{@render fieldError('timeout_sec')}
 				</SettingsCard>
+			</section>
+
+			<section id="runtimes" class="scroll-mt-32" aria-label="Runtimes">
+				<ProjectRuntimesCard project={p} bind:dirty={runtimesDirty} />
 			</section>
 
 			{#if canSecrets}

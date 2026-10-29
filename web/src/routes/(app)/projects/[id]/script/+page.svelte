@@ -8,6 +8,7 @@
 	import type { ScriptRevision } from '#lib/api/types.gen.js';
 	import BuiltinVariables from '#lib/components/builtin-variables.svelte';
 	import PageHeader from '#lib/components/page-header.svelte';
+	import ProjectRuntimesSummary from '#lib/components/project-runtimes-summary.svelte';
 	import ScriptEditor from '#lib/components/script-editor.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Skeleton } from '#lib/components/ui/skeleton/index.js';
@@ -270,6 +271,9 @@
 			</section>
 
 			<div class="flex min-w-0 flex-col gap-5">
+				{#if project.data}
+					<ProjectRuntimesSummary project={project.data} />
+				{/if}
 				{#if managed}
 					<section class="flex flex-col gap-4 rounded-xl border bg-card p-6" aria-label="Revisions">
 						<h2 class="flex items-center gap-2 text-sm font-semibold">
