@@ -1,138 +1,165 @@
 # degoploy
 
-Webhook deploy runner untuk GitHub dan Gitea. Satu binary Go dengan Web UI (SvelteKit) ter-embed:
-trigger rules per project, deploy key SSH per project, live log, multi role, dan SSO (OIDC/Casdoor).
+degoploy runs your deploy script whenever someone pushes to a GitHub or Gitea repository. It is a single
+Go binary with the web UI built in: you register a project, choose which pushes may deploy, write the
+script, and watch every deployment and its log live in the browser.
 
-> Status: tahap 1–8 selesai. Instalasi di server: [docs/INSTALL.md](docs/INSTALL.md).
-> Rencana dan catatan implementasi: [docs/PLAN.md](docs/PLAN.md).
+- **Webhooks** from GitHub and Gitea, verified with a per-project HMAC secret.
+- **Trigger rules** per project: branches or tags (globs), changed paths, and skip keywords.
+- **Deploy keys**: each project gets its own SSH key for private repositories.
+- **Deploy scripts** kept in degoploy with revisions, or read from the repository, plus variables and
+  encrypted secrets.
+- **Live logs** over WebSocket, a queue per project, cancel and redeploy.
+- **Users and roles** (admin, deployer, viewer), invitations by email, and an audit log.
+- **Single sign-on** with any OIDC provider (tested with Casdoor), with groups mapped to roles.
+- **A CLI** that installs, updates and manages degoploy on the server without `sudo`.
 
-**User guide** — what you can do in degoploy and how (English, also in the app under **Docs**):
-[docs/guide](docs/guide/README.md).
+**User guide:** what you can do in degoploy and how. It is in [docs/guide](docs/guide/README.md) and
+in the app under **Docs**.
 
-## Kebutuhan
+## Install
 
-- Go 1.27+ (lihat `go.mod`)
-- Node.js 24+ dan npm (hanya untuk build UI)
-- `git` di server (dipakai saat deploy)
-- `make` (opsional, untuk shortcut di bawah)
-
-## Build
-
-```bash
-make build          # tygo -> build UI -> bin/degoploy (CGO_ENABLED=0, statis)
-make dist           # tarball rilis linux/amd64 + linux/arm64 di release/
-```
-
-Rilis: push tag versi, GitHub Actions (`.github/workflows/release.yml`) membangun, menguji, dan
-mengunggah tarball + `SHA256SUMS` ke GitHub Releases, tempat `install.sh` dan `degoploy update` mengunduh.
-
-```bash
-git tag v1.0.0 && git push origin v1.0.0
-```
-
-Tanpa `make`:
-
-```bash
-go tool tygo generate
-(cd web && npm ci && npm run build)      # output ke internal/web/dist
-CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o bin/degoploy ./cmd/degoploy
-```
-
-## Menjalankan
-
-```bash
-cp degoploy.example.yaml degoploy.yaml   # sesuaikan
-./bin/degoploy user create --config degoploy.yaml --username admin --role admin
-./bin/degoploy serve --config degoploy.yaml
-```
-
-Di server produksi cukup satu perintah; ia mengunduh rilis, memasang service systemd, dan membuat
-admin pertama (detail di [docs/INSTALL.md](docs/INSTALL.md)):
+On a Linux server (amd64 or arm64) with systemd, as a user who may use `sudo`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/irsyadulibad/degoploy/main/install.sh | sh
 ```
 
-Upgrade: `degoploy update`.
+The script downloads the latest release and checks its SHA256 sum, then runs `degoploy setup`. Setup asks
+a few questions, installs git and ssh if they are missing, and creates a `degoploy` system user, the
+config in `/etc/degoploy` and a systemd service. It starts the service, asks for the first admin, and
+prints the web address. Put a reverse proxy with HTTPS in front of it.
 
-Perintah CLI lain: `setup`, `update`, `status`, `user` (menu interaktif), `user passwd|role|disable|enable|list`,
-`backup`, `config check`, `version`; lihat `degoploy help`. Flag yang tidak diberikan ditanyakan lewat form
-di terminal. Saat service jalan, CLI memakai socket admin-nya, jadi anggota grup `degoploy` tidak perlu
-`sudo`. Semua opsi config bisa
-di-override lewat env `DEGOPLOY_*` (mis. `DEGOPLOY_LISTEN`, `DEGOPLOY_DATA_DIR`,
-`DEGOPLOY_OIDC_CLIENT_SECRET`). Variabel `DEGOPLOY_*` tidak pernah diteruskan ke script deploy.
+To update a server later:
 
-## SSO dengan Casdoor
+```bash
+degoploy update
+```
 
-1. **Di Casdoor**, buat *Application* di organisasi tim:
-   - *Redirect URLs*: `https://<host-degoploy>/auth/oidc/callback`
-     (sama persis dengan `oidc.redirect_url`; halaman **SSO** di degoploy menampilkannya).
+[docs/INSTALL.md](docs/INSTALL.md) covers the details (in Indonesian): unattended installs, the reverse
+proxy, file locations, permissions for deploy scripts, backups and troubleshooting.
+
+## Managing a server
+
+Root and members of the `degoploy` group run these without `sudo`. They talk to the running service
+through `/run/degoploy/admin.sock`, and changes appear in the audit log under the Linux user's name.
+
+```bash
+degoploy                 # in a terminal: install on a new server, otherwise show the status
+degoploy status          # is the service running, where, and how many users and projects
+degoploy user            # menu: create a user, set a password, change a role, disable or enable
+degoploy backup          # archive of the database, deploy keys, scripts and logs
+degoploy config check    # validate the configuration
+degoploy update          # download the latest release and restart on it
+degoploy help            # every command and flag
+```
+
+Flags left out are asked for in a terminal. Scripts pass every flag and pipe passwords on stdin, for
+example `echo "$PW" | degoploy user passwd --username budi`. Membership of the `degoploy` group is
+as powerful as an admin account, so add only people you would make admins.
+
+## Configuration
+
+`/etc/degoploy/degoploy.yaml` is written by setup. See [degoploy.example.yaml](degoploy.example.yaml)
+for every option. Each can be overridden with a `DEGOPLOY_*` environment variable, for example
+`DEGOPLOY_LISTEN`, `DEGOPLOY_BASE_URL` or `DEGOPLOY_OIDC_CLIENT_SECRET`, and `${VAR}` references in the
+file are read from the environment. Secrets belong in `/etc/degoploy/degoploy.env`, which systemd loads.
+degoploy never passes `DEGOPLOY_*` variables on to deploy scripts.
+
+The **SSO** and **Email** pages save their settings back into this file, keeping comments, and apply them
+without a restart. Values set through environment variables are shown read-only there.
+
+## Single sign-on with Casdoor
+
+1. **In Casdoor**, create an *Application* in your organization:
+   - *Redirect URLs*: `https://<degoploy host>/auth/oidc/callback`. The **SSO** page in degoploy shows
+     the exact value.
    - *Grant types*: `Authorization Code`.
-   - *Token format*: `JWT`. Format minimal (mis. `JWT-Standard`) bisa tidak menyertakan group;
-     degoploy juga membaca endpoint userinfo, tapi `JWT` paling aman.
-   - Catat *Client ID* dan *Client secret*.
-2. Buat group (mis. `degoploy-admins`, `devops`) dan masukkan user ke dalamnya.
-3. **Di `degoploy.yaml`**:
+   - *Token format*: `JWT`. Minimal formats such as `JWT-Standard` may leave out the groups. degoploy also
+     reads the userinfo endpoint, but `JWT` is the safest choice.
+   - Note the *Client ID* and *Client secret*.
+2. Create groups, for example `degoploy-admins` and `devops`, and add people to them.
+3. **In degoploy**, open **SSO** as an admin, enter the issuer (the Casdoor origin, without a path), the
+   client ID and secret, and map groups to roles, for example `my-org/degoploy-admins` → admin and
+   `my-org/devops` → deployer, with a fallback role for everyone else or none to reject them. Then
+   **Test sign-in** signs in once without starting a session and shows the groups Casdoor actually sends
+   and the role the person would get.
 
-   ```yaml
-   base_url: https://deploy.example.com
-   oidc:
-     enabled: true
-     provider_name: Casdoor
-     issuer: https://sso.example.com          # origin Casdoor, tanpa path
-     client_id: <client id>
-     client_secret: ${DEGOPLOY_OIDC_SECRET}  # isi lewat environment
-     redirect_url: https://deploy.example.com/auth/oidc/callback
-     scopes: [openid, profile, email]
-     groups_claim: groups
-     role_mapping:                           # role tertinggi dari group user yang dipakai
-       "my-org/degoploy-admins": admin
-       "my-org/devops": deployer
-       "*": viewer                           # hapus agar user di luar group ditolak
-     sync_role_on_login: true                # role diperbarui dari group setiap login
-   ```
+The same settings can live in `degoploy.yaml` under `oidc:` (see the example file). Good to know:
 
-4. Restart degoploy, lalu login lewat **Continue with Casdoor**. Buka menu **SSO** (admin) untuk melihat
-   klaim dan group yang benar-benar dikirim Casdoor (mis. `my-org/devops`), lalu sesuaikan `role_mapping`.
-
-Catatan:
-- Akun SSO dikaitkan lewat `issuer + sub`, tidak pernah lewat username/email, jadi user Casdoor tidak bisa
-  mengambil alih akun lokal yang username-nya sama (akun baru akan diberi akhiran, mis. `dewi-2`).
-- Simpan minimal satu admin lokal sebagai cadangan jika Casdoor down; setelah itu `local_login: false`
-  boleh dipakai untuk mewajibkan SSO.
-- Logout di degoploy hanya mengakhiri sesi degoploy, bukan sesi Casdoor.
+- SSO accounts are linked by `issuer + sub`, never by username or email. A Casdoor user therefore cannot
+  take over a local account with the same name; a new account gets a suffix such as `dewi-2`.
+- Keep at least one local admin as a fallback in case Casdoor is down. After that you may turn off
+  password sign-in to require SSO.
+- Signing out of degoploy ends the degoploy session only, not the Casdoor session.
 
 ## Development
 
+Requirements: Go 1.27+ (see `go.mod`), Node.js 24+ with npm, and `make`.
+
 ```bash
-make dev    # API di 127.0.0.1:8090 (degoploy.dev.yaml) + Vite di 0.0.0.0:5173 dengan proxy /api, /auth, /ws, /hook
-make test   # go test ./...
-make check  # go vet + svelte-check + prettier + eslint
-make types  # regenerate web/src/lib/api/types.gen.ts dari internal/api/types.go
+make dev     # API on 127.0.0.1:8090 (degoploy.dev.yaml) and Vite on 0.0.0.0:5173,
+             # which proxies /api, /auth, /ws and /hook to the API
+make test    # go test ./...
+make check   # go vet, svelte-check, prettier and eslint
+make types   # regenerate web/src/lib/api/types.gen.ts from internal/api/types.go
 ```
 
-Buka http://170.80.9.6:5173 (atau http://localhost:5173) saat dev. Buat user dulu dengan
-`go run ./cmd/degoploy user create --config degoploy.dev.yaml --username admin`.
-Untuk mencoba SSO saat dev, `redirect_url` harus memakai alamat dev server, mis.
-`http://170.80.9.6:5173/auth/oidc/callback` (Vite meneruskan `/auth` ke API).
+Create a first user with `go run ./cmd/degoploy user create --config degoploy.dev.yaml --username admin`,
+then open http://localhost:5173. To try SSO in development, `redirect_url` must use the dev server's
+address, for example `http://localhost:5173/auth/oidc/callback`; Vite forwards `/auth` to the API.
 
-## Struktur
+### Building
+
+```bash
+make build   # tygo, the web UI, then bin/degoploy (static, CGO_ENABLED=0)
+make dist    # release/degoploy-linux-{amd64,arm64}.tar.gz and SHA256SUMS
+```
+
+Without `make`:
+
+```bash
+go tool tygo generate
+(cd web && npm ci && npm run build)      # writes internal/web/dist
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o bin/degoploy ./cmd/degoploy
+```
+
+### Releases
+
+Pushing a version tag runs [.github/workflows/release.yml](.github/workflows/release.yml). It builds the UI
+and both binaries, runs the checks and tests, and publishes the tarballs and `SHA256SUMS` as a GitHub
+release, where `install.sh` and `degoploy update` download them. Tags with a hyphen (`v1.1.0-rc.1`)
+become pre-releases. Releases are currently built on
+[irsyadulibad/degoploy](https://github.com/irsyadulibad/degoploy), because GitHub Actions is turned off
+for the Degovan organization.
+
+```bash
+git tag v1.0.1 && git push fork v1.0.1   # fork: git@github.com:irsyadulibad/degoploy.git
+```
+
+## Layout
 
 ```
-cmd/degoploy/        CLI: serve, setup, status, user, backup, config check, version
-internal/admin/      socket admin untuk CLI (user, status, backup, config check) + fallback in-process
-deploy/              degoploy.service + template config (di-embed untuk degoploy setup)
-install.sh           installer satu baris (curl | sh): unduh rilis, cek SHA256, jalankan degoploy setup
-internal/config/     YAML + env
-internal/store/      SQLite (modernc, tanpa CGO) + migrasi embed
-internal/auth/       password, session cookie, CSRF, RBAC, OIDC (oidctest: IdP palsu untuk test)
-internal/project/    project, deploy key, script managed/repo
-internal/webhook/    verifikasi HMAC + parsing payload GitHub/Gitea
-internal/trigger/    glob + evaluasi trigger rules
-internal/deploy/     antrian per project + runner (git, script, log)
-internal/realtime/   hub WebSocket per topik
-internal/api/        JSON API /api/v1, /hook, /ws, /auth/oidc (types.go -> TypeScript via tygo)
-internal/server/     wiring router + middleware + shutdown
-internal/web/        embed SPA (dist/ hasil build web/)
-web/                 SvelteKit 3 + Svelte 5 + Tailwind v4 + shadcn-svelte
+cmd/degoploy/        CLI: serve, setup, update, status, user, backup, config check
+internal/admin/      admin socket API for the CLI, with an in-process fallback
+internal/api/        JSON API (/api/v1), webhooks (/hook), WebSocket (/ws) and OIDC (/auth)
+internal/audit/      audit log entries
+internal/auth/       passwords, sessions, CSRF, roles and OIDC (oidctest: a fake IdP for tests)
+internal/config/     YAML and environment settings, written back by the SSO and Email pages
+internal/deploy/     per-project queue and runner (git, script, log)
+internal/gitops/     git and ssh settings for each project
+internal/mail/       SMTP client for invitations (smtptest: a fake server for tests)
+internal/project/    projects, deploy keys and scripts
+internal/realtime/   WebSocket hub with topics
+internal/secrets/    encryption of project secrets and sealed config values
+internal/server/     router, middleware and shutdown
+internal/sshkey/     deploy key generation
+internal/store/      SQLite (modernc, no CGO) with embedded migrations
+internal/trigger/    glob matching and trigger rules
+internal/webhook/    HMAC checks and GitHub/Gitea payloads
+internal/web/        the embedded web UI (built from web/)
+deploy/              systemd unit and config template, embedded for degoploy setup
+docs/                installation (Indonesian), the user guide and the implementation plan
+install.sh           one-line installer: downloads a release, checks it, runs degoploy setup
+web/                 SvelteKit with Svelte 5, Tailwind v4 and shadcn-svelte
 ```
