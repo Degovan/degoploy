@@ -65,14 +65,15 @@ $(DIST)/index.html:
 	@mkdir -p $(DIST)
 	@echo '<!doctype html><title>degoploy</title><p>Web UI not built. Run <code>make web</code>.</p>' > $@
 
-## dist: release tarballs (linux/$(ARCHES)) with binary, installer, unit and docs in release/
+## dist: release tarballs (linux/$(ARCHES)) with the binary and docs in release/. The names
+## carry no version, so releases/latest/download/degoploy-linux-<arch>.tar.gz always works.
 dist: types web
 	@rm -rf release && mkdir -p release
 	@set -e; for arch in $(ARCHES); do \
-		name=degoploy-$(VERSION)-linux-$$arch; dir=release/$$name; \
-		echo "building $$name"; mkdir -p $$dir; \
+		name=degoploy-linux-$$arch; dir=release/$$name; \
+		echo "building $$name ($(VERSION))"; mkdir -p $$dir; \
 		CGO_ENABLED=0 GOOS=linux GOARCH=$$arch go build -trimpath -ldflags '$(LDFLAGS)' -o $$dir/degoploy ./cmd/degoploy; \
-		cp deploy/install.sh deploy/degoploy.service degoploy.example.yaml README.md docs/INSTALL.md $$dir/; \
+		cp degoploy.example.yaml README.md LICENSE docs/INSTALL.md $$dir/; \
 		tar -C release -czf release/$$name.tar.gz $$name; rm -rf $$dir; \
 	done
 	cd release && sha256sum *.tar.gz > SHA256SUMS && cat SHA256SUMS

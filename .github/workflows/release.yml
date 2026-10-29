@@ -1,0 +1,49 @@
+# Publishes a release when a version tag is pushed:
+#
+#   git tag v1.2.3 && git push origin v1.2.3
+#
+# It builds the web UI and the linux/amd64 and linux/arm64 binaries, runs the
+# checks and tests, and attaches degoploy-linux-<arch>.tar.gz and SHA256SUMS to
+# a GitHub release. install.sh and degoploy update download from there. Tags
+# with a hyphen (v1.3.0-rc.1) become pre-releases, which "latest" skips.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build
+        run: make dist VERSION="$GITHUB_REF_NAME"
+
+      - name: Check and test
+        run: make check test
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=""
+          case "$GITHUB_REF_NAME" in *-*) flags="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" release/*.tar.gz release/SHA256SUMS \
+            --verify-tag --generate-notes --title "degoploy $GITHUB_REF_NAME" $flags

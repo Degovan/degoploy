@@ -15,23 +15,31 @@ degoploy adalah satu binary statis (UI sudah ter-embed); tidak perlu Go/Node di 
 
 ## 2. Instal
 
-degoploy memasang dirinya sendiri. Taruh binary di server lalu jalankan di terminal:
+Satu perintah di server, sebagai user biasa yang boleh `sudo`:
 
 ```bash
-# ganti versi/arsitektur sesuai file rilis
-tar xzf degoploy-<versi>-linux-amd64.tar.gz
-cd degoploy-<versi>-linux-amd64
-sha256sum -c ../SHA256SUMS --ignore-missing      # opsional, bila SHA256SUMS ikut diunduh
-./degoploy
+curl -fsSL https://raw.githubusercontent.com/Degovan/degoploy/main/install.sh | sh
 ```
 
-Bila binary sudah Anda pindahkan ke `/usr/local/bin`, cukup ketik `degoploy`. Di server yang belum
-terpasang, perintah itu menawarkan instalasi dan melanjutkan lewat `sudo` (password Anda ditanyakan
-sekali). Lalu ia menanyakan alamat listen, URL publik, apakah Anda boleh menjalankan `degoploy` tanpa
-`sudo`, dan bila perlu memasang `git` + `ssh` lewat package manager. Setelah service jalan, ia meminta
-admin pertama dan menampilkan alamat web. Selesai, tidak ada langkah manual lain.
+Script itu mengunduh rilis terbaru untuk arsitektur server (amd64/arm64) dari GitHub Releases,
+mencocokkan SHA256-nya, lalu menjalankan `degoploy setup` lewat `sudo`. Setup menanyakan alamat listen,
+URL publik, apakah Anda boleh menjalankan `degoploy` tanpa `sudo`, dan bila perlu memasang `git` +
+`ssh`. Setelah service jalan, ia meminta admin pertama dan menampilkan alamat web. Tidak perlu clone,
+compile, atau mengatur env.
 
-`degoploy setup` (sama dengan `sudo ./install.sh` dari tarball) melakukan semuanya:
+Versi tertentu: `… | sh -s -- --version v1.2.3`. Untuk otomasi (tanpa pertanyaan), unduh script-nya
+dulu lalu kirim password admin lewat stdin:
+
+```bash
+curl -fsSLo install.sh https://raw.githubusercontent.com/Degovan/degoploy/main/install.sh
+echo "$ADMIN_PW" | sh install.sh --yes --base-url https://deploy.example.com --admin admin
+```
+
+Tanpa internet di server: unduh `degoploy-linux-amd64.tar.gz` dari halaman
+[Releases](https://github.com/Degovan/degoploy/releases), salin ke server, ekstrak, lalu jalankan
+`./degoploy` di terminal. Binary yang belum terpasang menawarkan instalasi yang sama.
+
+`degoploy setup` melakukan semuanya:
 
 1. memasang `git` dan `ssh` bila belum ada (apt-get, dnf, yum, zypper, pacman, atau apk),
 2. membuat user sistem `degoploy` (tanpa login shell),
@@ -43,12 +51,6 @@ admin pertama dan menampilkan alamat web. Selesai, tidak ada langkah manual lain
 6. memasang `degoploy.service`, lalu `enable` + `start`, dan menunggu sampai service menjawab,
 7. membuat admin pertama bila belum ada.
 
-Untuk otomasi, beri flag dan `--yes`; password admin dibaca dari stdin:
-
-```bash
-echo "$ADMIN_PW" | sudo ./degoploy setup --yes --base-url https://deploy.example.com --admin admin
-```
-
 Opsi lain: `--listen 127.0.0.1:9000`, `--no-start`. Setiap langkah memeriksa dulu, jadi menjalankan
 `sudo degoploy setup` lagi juga memperbaiki izin file dan unit yang berubah.
 
@@ -57,7 +59,7 @@ Grup baru aktif setelah logout lalu login lagi (atau `newgrp degoploy`).
 ### Build sendiri
 
 ```bash
-make dist            # release/degoploy-<versi>-linux-{amd64,arm64}.tar.gz + SHA256SUMS
+make dist            # release/degoploy-linux-{amd64,arm64}.tar.gz + SHA256SUMS
 ```
 
 ## 3. Lokasi file
@@ -207,15 +209,14 @@ sudo systemctl restart degoploy
 
 ## 8. Upgrade
 
-Unduh rilis baru lalu jalankan binary barunya:
-
 ```bash
-./degoploy setup
+degoploy update            # unduh rilis terbaru, cek SHA256, ganti binary, restart service
+degoploy update --check    # hanya cek apakah ada versi baru
 ```
 
-Ia menawarkan upgrade, mengganti `/usr/local/bin/degoploy`, dan me-restart service. Bila binary baru
-langsung Anda taruh di `/usr/local/bin` (`sudo install -m 0755 degoploy /usr/local/bin/`), jalankan
-`degoploy setup`; ia melihat service masih memakai versi lama dan menawarkan restart.
+Menjalankan ulang one-liner di bagian 2 juga meng-upgrade. Bila binary baru Anda taruh sendiri di
+`/usr/local/bin` (`sudo install -m 0755 degoploy /usr/local/bin/`), jalankan `degoploy setup`; ia melihat
+service masih memakai versi lama dan menawarkan restart.
 
 Konfigurasi dan data tidak disentuh; migrasi database berjalan otomatis saat start. Deploy yang sedang
 berjalan diberi waktu 60 detik untuk selesai, antrian dilanjutkan setelah restart.

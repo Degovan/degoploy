@@ -28,6 +28,7 @@ func usage() string {
 		bold.Render("Install") + "\n" +
 		cmd("setup [--yes] [--base-url URL]", "install or upgrade degoploy on this server, then create") +
 		cmd("", "the first admin; asks for sudo when needed") +
+		cmd("update [--version V] [--check]", "download the latest release and restart on it") +
 		"\n" + bold.Render("Manage") + muted.Render("  as root or a member of the degoploy group, no sudo needed") + "\n" +
 		cmd("status", "is the service running, and where") +
 		cmd("user", "pick a user action from a menu") +
@@ -72,6 +73,8 @@ func main() {
 		err = runServe(args)
 	case "setup":
 		err = runSetup(args)
+	case "update":
+		err = runUpdate(args)
 	case "status":
 		err = runStatus(args)
 		if bare && err == nil {

@@ -23,6 +23,13 @@ make build          # tygo -> build UI -> bin/degoploy (CGO_ENABLED=0, statis)
 make dist           # tarball rilis linux/amd64 + linux/arm64 di release/
 ```
 
+Rilis: push tag versi, GitHub Actions (`.github/workflows/release.yml`) membangun, menguji, dan
+mengunggah tarball + `SHA256SUMS` ke GitHub Releases, tempat `install.sh` dan `degoploy update` mengunduh.
+
+```bash
+git tag v1.0.0 && git push origin v1.0.0
+```
+
 Tanpa `make`:
 
 ```bash
@@ -39,11 +46,16 @@ cp degoploy.example.yaml degoploy.yaml   # sesuaikan
 ./bin/degoploy serve --config degoploy.yaml
 ```
 
-Di server produksi, jalankan binary-nya di terminal (`./degoploy` atau `degoploy` bila sudah di
-`/usr/local/bin`): ia memasang dirinya sebagai service systemd dengan user khusus dan `/etc/degoploy`,
-lalu membuat admin pertama. Lihat [docs/INSTALL.md](docs/INSTALL.md).
+Di server produksi cukup satu perintah; ia mengunduh rilis, memasang service systemd, dan membuat
+admin pertama (detail di [docs/INSTALL.md](docs/INSTALL.md)):
 
-Perintah CLI lain: `setup`, `status`, `user` (menu interaktif), `user passwd|role|disable|enable|list`,
+```bash
+curl -fsSL https://raw.githubusercontent.com/Degovan/degoploy/main/install.sh | sh
+```
+
+Upgrade: `degoploy update`.
+
+Perintah CLI lain: `setup`, `update`, `status`, `user` (menu interaktif), `user passwd|role|disable|enable|list`,
 `backup`, `config check`, `version`; lihat `degoploy help`. Flag yang tidak diberikan ditanyakan lewat form
 di terminal. Saat service jalan, CLI memakai socket admin-nya, jadi anggota grup `degoploy` tidak perlu
 `sudo`. Semua opsi config bisa
@@ -109,7 +121,8 @@ Untuk mencoba SSO saat dev, `redirect_url` harus memakai alamat dev server, mis.
 ```
 cmd/degoploy/        CLI: serve, setup, status, user, backup, config check, version
 internal/admin/      socket admin untuk CLI (user, status, backup, config check) + fallback in-process
-deploy/              degoploy.service + template config (di-embed untuk degoploy setup), install.sh
+deploy/              degoploy.service + template config (di-embed untuk degoploy setup)
+install.sh           installer satu baris (curl | sh): unduh rilis, cek SHA256, jalankan degoploy setup
 internal/config/     YAML + env
 internal/store/      SQLite (modernc, tanpa CGO) + migrasi embed
 internal/auth/       password, session cookie, CSRF, RBAC, OIDC (oidctest: IdP palsu untuk test)
