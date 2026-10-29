@@ -71,6 +71,14 @@ export interface Project {
 	auto_pull: boolean;
 	timeout_sec: number /* int */;
 	enabled: boolean;
+	/**
+	 * NodeVersion is "auto", "none" or a version spec such as "22" or "lts".
+	 */
+	node_version: string;
+	/**
+	 * NodeUsed is the Node.js version the latest deployment ran with ("" if none).
+	 */
+	node_used: string;
 	created_at: string;
 	updated_at: string;
 	/**
@@ -475,6 +483,7 @@ export interface UpdateProjectRequest {
 	auto_pull?: boolean;
 	timeout_sec?: number /* int */;
 	enabled?: boolean;
+	node_version?: string;
 }
 /**
  * UpdateUserRequest is a partial update; omitted fields keep their value.
@@ -561,4 +570,79 @@ export interface OIDCDiscovery {
 	scopes_supported: string[];
 	claims_supported: string[];
 	checked_at: string;
+}
+/**
+ * NodeStatus is the Node.js page: the versions installed for deploy scripts.
+ */
+export interface NodeStatus {
+	/**
+	 * Platform is the build degoploy downloads, such as "linux-x64".
+	 */
+	platform: string;
+	mirror: string;
+	/**
+	 * Default is the spec used by projects on "auto" whose repository names
+	 * no version; "" when none is set.
+	 */
+	default: string;
+	installed: NodeVersion[];
+	total_size: number /* int64 */;
+	/**
+	 * Installing lists downloads in progress, started here, from the CLI or by a deployment.
+	 */
+	installing: NodeProgress[];
+}
+export interface NodeProgress {
+	version: string;
+	phase: 'downloading' | 'unpacking';
+	done: number /* int64 */;
+	/**
+	 * Total is 0 when the mirror does not say how big the download is.
+	 */
+	total: number /* int64 */;
+}
+export interface NodeVersion {
+	version: string;
+	lts: string;
+	size: number /* int64 */;
+	installed_at: string;
+	/**
+	 * Default: the default spec picks this version.
+	 */
+	default: boolean;
+	/**
+	 * UsedBy names the projects whose latest deployment ran with this version.
+	 */
+	used_by: string[];
+	/**
+	 * Pinned names the projects that ask for exactly this version; update keeps it.
+	 */
+	pinned: string[];
+}
+/**
+ * NodeRelease is the newest release of one major line.
+ */
+export interface NodeRelease {
+	version: string;
+	lts: string;
+	date: string;
+	installed: boolean;
+}
+/**
+ * NodeSpecRequest names a version: "22", "20.11.1", "lts" or "" (default only).
+ */
+export interface NodeSpecRequest {
+	spec: string;
+}
+export interface NodeUpdateResult {
+	changes: NodeChange[];
+	status: NodeStatus;
+}
+export interface NodeChange {
+	from: string;
+	to: string;
+	/**
+	 * Removed: From was removed; false when a project pins it.
+	 */
+	removed: boolean;
 }

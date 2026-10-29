@@ -74,4 +74,5 @@ sudo systemctl reload php-fpm
 
 - A deployment **fails** when the script exits with a code other than 0.
 - The script is stopped when it runs longer than the project's **Timeout**, set in [project settings](project-settings.md).
+- `node`, `npm` and `pnpm` come from the Node.js version the project asks for, which degoploy installs; see [Node.js versions](nodejs.md). The script does not need to load nvm.
 - The script runs as the degoploy system user. Extra rights, such as `sudo` for restarting a service, are set up on the server; see [Installation](../INSTALL.md).

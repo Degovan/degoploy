@@ -30,8 +30,11 @@ type Config struct {
 	// Empty means $RUNTIME_DIRECTORY/admin.sock under systemd, else
 	// <data_dir>/admin.sock; "off" disables it.
 	AdminSocket string `yaml:"admin_socket"`
-	OIDC        OIDC   `yaml:"oidc"`
-	SMTP        SMTP   `yaml:"smtp"`
+	// NodeMirror is where Node.js releases are downloaded from; empty means
+	// https://nodejs.org/dist. A mirror needs the same layout.
+	NodeMirror string `yaml:"node_mirror"`
+	OIDC       OIDC   `yaml:"oidc"`
+	SMTP       SMTP   `yaml:"smtp"`
 
 	// Parsed from TrustedProxies by Load.
 	TrustedPrefixes []netip.Prefix `yaml:"-"`
@@ -151,6 +154,7 @@ func applyEnv(cfg *Config) error {
 		"DEGOPLOY_BASE_URL":           &cfg.BaseURL,
 		"DEGOPLOY_SECRET_KEY":         &cfg.SecretKey,
 		"DEGOPLOY_ADMIN_SOCKET":       &cfg.AdminSocket,
+		"DEGOPLOY_NODE_MIRROR":        &cfg.NodeMirror,
 		"DEGOPLOY_OIDC_ISSUER":        &cfg.OIDC.Issuer,
 		"DEGOPLOY_OIDC_CLIENT_ID":     &cfg.OIDC.ClientID,
 		"DEGOPLOY_OIDC_CLIENT_SECRET": &cfg.OIDC.ClientSecret,

@@ -56,7 +56,8 @@
 			{ label: 'Roles', href: resolve('/(app)/roles'), requires: 'user.manage' },
 			{ label: 'Audit log', href: resolve('/(app)/audit'), requires: 'audit.view' },
 			{ label: 'SSO', href: resolve('/(app)/sso'), requires: 'user.manage' },
-			{ label: 'Email', href: resolve('/(app)/email'), requires: 'user.manage' }
+			{ label: 'Email', href: resolve('/(app)/email'), requires: 'user.manage' },
+			{ label: 'Node.js', href: resolve('/(app)/node'), requires: 'user.manage' }
 		];
 	});
 	const visibleTabs = $derived(tabs.filter((t) => !t.requires || session.can(t.requires)));

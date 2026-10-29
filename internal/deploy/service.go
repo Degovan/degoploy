@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/degovan/degoploy/internal/node"
 	"github.com/degovan/degoploy/internal/project"
 	"github.com/degovan/degoploy/internal/realtime"
 	"github.com/degovan/degoploy/internal/secrets"
@@ -49,6 +50,9 @@ type Service struct {
 	hub      *realtime.Hub
 	secrets  *secrets.Box // opens secret project variables
 	sem      chan struct{}
+
+	// Node installs the Node.js version a project asks for; nil leaves PATH alone.
+	Node *node.Manager
 
 	// OnUpdate is called after every deployment state change (for realtime events).
 	OnUpdate func(*store.DeploymentView)

@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/degovan/degoploy/internal/node"
 	"github.com/degovan/degoploy/internal/project"
 	"github.com/degovan/degoploy/internal/secrets"
 	"github.com/degovan/degoploy/internal/store"
@@ -68,11 +69,18 @@ func (s *Service) run(ctx context.Context, d *store.Deployment, p *store.Project
 	if err := s.store.MarkScriptStarted(context.WithoutCancel(ctx), d.ID, p.ScriptSource == store.ScriptManaged); err == nil {
 		s.notify(d.ID)
 	}
+	nodeBin, err := s.setupNode(ctx, p, w)
+	if err != nil {
+		return s.outcome(ctx, w, start, err)
+	}
 	step(w, "Running %s", script)
 
 	cmd := exec.CommandContext(ctx, "bash", "--noprofile", "--norc", script)
 	cmd.Dir = p.WorkDir
 	cmd.Env = s.scriptEnv(d, p, rule, vars)
+	if nodeBin != "" {
+		cmd.Env = withNode(cmd.Env, nodeBin)
+	}
 	setProcessGroup(cmd)
 	// Secrets are masked before the last-line summary sees the output.
 	out := &lastLine{w: w}
@@ -218,6 +226,65 @@ func (s *Service) scriptPath(p *store.Project) (string, error) {
 		return "", fmt.Errorf("deploy script %s: %w", p.ScriptPath, err)
 	}
 	return path, nil
+}
+
+// setupNode picks the Node.js version the project asks for, installs it when
+// needed, and returns its bin directory; "" when the project uses none.
+func (s *Service) setupNode(ctx context.Context, p *store.Project, w io.Writer) (string, error) {
+	if s.Node == nil || p.NodeVersion == node.None {
+		return "", nil
+	}
+	spec, source := p.NodeVersion, "project settings"
+	if spec == node.Auto || spec == "" {
+		spec, source = node.Detect(p.WorkDir)
+		if spec == "" {
+			def, err := s.store.Setting(ctx, store.SettingNodeDefault)
+			if err != nil || def == "" {
+				return "", err
+			}
+			spec, source = def, "the default version"
+		}
+	}
+	v, installed, err := s.Node.Resolve(ctx, spec)
+	if err != nil {
+		return "", fmt.Errorf("Node.js %s (from %s): %w", spec, source, err)
+	}
+	if !installed {
+		step(w, "Installing Node.js %s", v)
+		if err := s.Node.Install(ctx, v, noteWriter{w}); err != nil {
+			return "", fmt.Errorf("install Node.js %s: %w", v, err)
+		}
+	}
+	note(w, "node: %s (%s from %s)", v, spec, source)
+	if p.NodeUsed != v.String() {
+		s.store.SetProjectNodeUsed(context.WithoutCancel(ctx), p.ID, v.String())
+	}
+	return s.Node.BinDir(v), nil
+}
+
+// withNode puts bin first on PATH.
+func withNode(env []string, bin string) []string {
+	out := make([]string, 0, len(env)+2)
+	path := "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
+			path = v
+			continue
+		}
+		out = append(out, kv)
+	}
+	// corepack would otherwise ask before downloading pnpm or yarn.
+	return append(out, "PATH="+bin+string(os.PathListSeparator)+path, "COREPACK_ENABLE_DOWNLOAD_PROMPT=0")
+}
+
+// noteWriter prints each line written to it as a note.
+type noteWriter struct{ w io.Writer }
+
+func (n noteWriter) Write(b []byte) (int, error) {
+	for _, line := range strings.Split(strings.TrimRight(string(b), "\n"), "\n") {
+		note(n.w, "%s", line)
+	}
+	return len(b), nil
 }
 
 // projectVars returns the project's variables as KEY=value pairs, with secrets

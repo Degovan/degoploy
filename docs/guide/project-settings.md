@@ -6,7 +6,7 @@ updated: 2026-10-29
 
 # Project settings
 
-Change what you set up when creating the project: its name, repository, working directory, script source, timeout, deploy key and webhook, or delete it.
+Change what you set up when creating the project: its name, repository, working directory, script source, Node.js version, timeout, deploy key and webhook, or delete it.
 
 Only **admins** can open a project's **Settings** tab.
 
@@ -32,6 +32,7 @@ If you leave the page with unsaved changes, degoploy asks first.
 - Choose **Managed by degoploy** or **From the repository**. See [Deploy script](deploy-script.md).
 - For a script from the repository, enter its path.
 - Choose whether the repository is updated before the script runs.
+- **Node.js**: Auto (from `.nvmrc` and similar files), a version such as `22`, or None. See [Node.js versions](nodejs.md).
 - **Timeout**: runs longer than this are stopped and marked *Timed out*. Between 10 seconds and 24 hours.
 
 ## Deploy key and webhook

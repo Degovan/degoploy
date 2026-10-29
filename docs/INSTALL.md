@@ -71,6 +71,7 @@ make dist            # release/degoploy-linux-{amd64,arm64}.tar.gz + SHA256SUMS
 | `/etc/degoploy/degoploy.yaml` | konfigurasi (halaman *SSO* dan *Email* menyimpan ke sini) | `0640` degoploy:degoploy |
 | `/etc/degoploy/degoploy.env` | secret (`DEGOPLOY_OIDC_SECRET=…`), dibaca systemd | `0600` root |
 | `/var/lib/degoploy/` | database, deploy key, script, log | `0700` degoploy |
+| `/var/lib/degoploy/node/` | versi Node.js untuk deploy script (diunduh otomatis) | `0755` degoploy |
 | `/run/degoploy/admin.sock` | socket untuk CLI `degoploy` | `0660` degoploy:degoploy |
 | `/etc/systemd/system/degoploy.service` | unit systemd | `0644` |
 
@@ -197,6 +198,25 @@ Catatan:
 - Memasukkan `degoploy` ke grup `docker` setara dengan akses root.
 - Unit sengaja tidak memakai `NoNewPrivileges`/`ProtectSystem` agar `sudo` dan penulisan ke `/var/www`
   tetap bisa; aktifkan lewat drop-in (`systemctl edit degoploy`) jika script Anda tidak membutuhkannya.
+
+### Node.js untuk deploy script
+
+Script berjalan sebagai user `degoploy`, jadi nvm milik user lain tidak terbaca. degoploy mengelola
+Node.js sendiri: setiap project memakai versi dari `.nvmrc`, `.node-version` atau `engines.node`
+(atau versi yang dipilih di Project settings), dan versi itu diunduh dari nodejs.org saat pertama kali
+dibutuhkan, dicek SHA256-nya, lalu disimpan di `/var/lib/degoploy/node/`. `node`, `npm`, `npx`,
+`pnpm` dan `yarn` langsung ada di `PATH` script tanpa memuat nvm. Kelola versinya di halaman
+**Node.js** atau lewat CLI:
+
+```bash
+degoploy node install 22     # atau lts, 20.11.1
+degoploy node default 22     # untuk project yang repo-nya tidak menyebut versi
+degoploy node update         # naikkan setiap versi ke patch terbaru
+```
+
+Server tanpa akses ke nodejs.org bisa memakai mirror dengan struktur yang sama:
+`node_mirror: https://mirror.example.com/nodejs` di `degoploy.yaml` (atau `DEGOPLOY_NODE_MIRROR`).
+Panduan lengkap: [docs/guide/nodejs.md](guide/nodejs.md).
 
 ## 7. SSO (Casdoor)
 

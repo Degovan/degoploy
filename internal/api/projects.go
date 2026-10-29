@@ -175,6 +175,7 @@ func (a *API) updateProject(w http.ResponseWriter, r *http.Request) {
 	setIf(&in.AutoPull, req.AutoPull)
 	setIf(&in.TimeoutSec, req.TimeoutSec)
 	setIf(&in.Enabled, req.Enabled)
+	setIf(&in.NodeVersion, req.NodeVersion)
 
 	before := toProject(p)
 	if err := a.projects.Update(r.Context(), p, in, ident.User.ID); err != nil {
@@ -338,6 +339,7 @@ func toProject(p *store.Project) Project {
 		ID: p.ID, Slug: p.Slug, Name: p.Name, Provider: p.Provider, RepoURL: p.RepoURL,
 		WorkDir: p.WorkDir, ScriptSource: p.ScriptSource, ScriptPath: p.ScriptPath,
 		AutoPull: p.AutoPull, TimeoutSec: p.TimeoutSec, Enabled: p.Enabled,
+		NodeVersion: p.NodeVersion, NodeUsed: p.NodeUsed,
 		CreatedAt: p.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt: p.UpdatedAt.UTC().Format(time.RFC3339),
 	}
@@ -360,6 +362,7 @@ func diffProjects(before, after Project) map[string][2]any {
 	add("auto_pull", before.AutoPull, after.AutoPull)
 	add("timeout_sec", before.TimeoutSec, after.TimeoutSec)
 	add("enabled", before.Enabled, after.Enabled)
+	add("node_version", before.NodeVersion, after.NodeVersion)
 	return out
 }
 

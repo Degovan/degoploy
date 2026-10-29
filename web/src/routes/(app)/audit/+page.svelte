@@ -28,6 +28,7 @@
 	import FingerprintIcon from '@lucide/svelte/icons/fingerprint-pattern';
 	import FolderGit2Icon from '@lucide/svelte/icons/folder-git-2';
 	import GitBranchIcon from '@lucide/svelte/icons/git-branch';
+	import HexagonIcon from '@lucide/svelte/icons/hexagon';
 	import HistoryIcon from '@lucide/svelte/icons/history';
 	import KeyRoundIcon from '@lucide/svelte/icons/key-round';
 	import LayersIcon from '@lucide/svelte/icons/layers';
@@ -51,7 +52,8 @@
 		'user.': UserCogIcon,
 		'invite.': MailIcon,
 		'sso.': FingerprintIcon,
-		'email.': ServerIcon
+		'email.': ServerIcon,
+		'node.': HexagonIcon
 	};
 	const iconFor = (action: string) =>
 		action === 'auth.logout' ? LogOutIcon : categoryIcons[categoryOf(action) ?? 'auth.'];

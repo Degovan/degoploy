@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"charm.land/huh/v2"
-	"charm.land/huh/v2/spinner"
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
 	"golang.org/x/term"
@@ -61,11 +61,36 @@ func confirm(title, description string, yes bool) (bool, error) {
 
 // working runs fn behind a spinner titled with what it does.
 func working(title string, fn func(context.Context) error) error {
+	return workingWith(title, nil, fn)
+}
+
+// workingWith is working with a status, such as download progress, shown
+// after the title. status is called on every frame, so it must be cheap.
+func workingWith(title string, status func() string, fn func(context.Context) error) error {
 	if !interactive() {
 		lipgloss.Println(muted.Render(title + "…"))
 		return fn(context.Background())
 	}
-	return spinner.New().Title(" " + title + "…").ActionWithErr(fn).Run()
+	done := make(chan error, 1)
+	go func() { done <- fn(context.Background()) }()
+	frames := []rune("⣾⣽⣻⢿⡿⣟⣯⣷")
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+	for i := 0; ; i++ {
+		line := blue.Render(string(frames[i%len(frames)])) + " " + title + "…"
+		if status != nil {
+			if s := status(); s != "" {
+				line += "  " + muted.Render(s)
+			}
+		}
+		lipgloss.Print("\r\033[K" + line)
+		select {
+		case err := <-done:
+			lipgloss.Print("\r\033[K")
+			return err
+		case <-tick.C:
+		}
+	}
 }
 
 func success(format string, a ...any) {

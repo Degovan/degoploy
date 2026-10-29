@@ -52,7 +52,7 @@ func InputFrom(p *store.Project) Input {
 	return Input{
 		Name: p.Name, Slug: p.Slug, Provider: p.Provider, RepoURL: p.RepoURL, WorkDir: p.WorkDir,
 		ScriptSource: p.ScriptSource, ScriptPath: p.ScriptPath, AutoPull: p.AutoPull,
-		TimeoutSec: p.TimeoutSec, Enabled: p.Enabled,
+		TimeoutSec: p.TimeoutSec, Enabled: p.Enabled, NodeVersion: p.NodeVersion,
 	}
 }
 
@@ -218,6 +218,7 @@ func apply(p *store.Project, in Input) {
 	p.AutoPull = in.AutoPull
 	p.TimeoutSec = in.TimeoutSec
 	p.Enabled = in.Enabled
+	p.NodeVersion = in.NodeVersion
 }
 
 func keyComment(p *store.Project) string { return "degoploy-" + p.Slug }

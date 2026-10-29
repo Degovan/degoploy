@@ -10,7 +10,8 @@ export const auditCategories = [
 	{ value: 'user.', label: 'Users' },
 	{ value: 'invite.', label: 'Invites' },
 	{ value: 'sso.', label: 'Sign-in methods' },
-	{ value: 'email.', label: 'Email' }
+	{ value: 'email.', label: 'Email' },
+	{ value: 'node.', label: 'Node.js' }
 ] as const;
 
 export type AuditCategory = (typeof auditCategories)[number]['value'];
@@ -234,6 +235,36 @@ export function describe(e: AuditEntry, names: Map<string, string>): AuditSenten
 				target: str(d.to),
 				mono: true,
 				meta: [d.delivered ? 'delivered' : 'failed']
+			};
+		case 'node.install':
+			return { actor, verb: 'installed Node.js', target: str(d.version), mono: true, meta: [] };
+		case 'node.remove':
+			return { actor, verb: 'removed Node.js', target: str(d.version), mono: true, meta: [] };
+		case 'node.cancel':
+			return {
+				actor,
+				verb: 'canceled the install of Node.js',
+				target: str(d.version),
+				mono: true,
+				meta: []
+			};
+		case 'node.default':
+			return str(d.to)
+				? {
+						actor,
+						verb: 'set the default Node.js version to',
+						target: str(d.to),
+						mono: true,
+						meta: []
+					}
+				: { actor, verb: 'cleared the default Node.js version', meta: [] };
+		case 'node.update':
+			return {
+				actor,
+				verb: 'updated Node.js',
+				meta: Array.isArray(d.changes)
+					? (d.changes as { from?: string; to?: string }[]).map((c) => `${c.from} → ${c.to}`)
+					: []
 			};
 		case 'invite.accept':
 			return { actor, verb: 'accepted an invite', suffix: `as ${roleLabel(d.role)}`, meta: [] };

@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/degovan/degoploy/internal/node"
 	"github.com/degovan/degoploy/internal/store"
 )
 
@@ -33,6 +34,8 @@ type Input struct {
 	AutoPull     bool
 	TimeoutSec   int
 	Enabled      bool
+	// NodeVersion is node.Auto (the default), node.None or a version spec.
+	NodeVersion string
 	// DefaultBranch (create only) adds a first rule deploying pushes to this branch.
 	DefaultBranch string
 }
@@ -58,6 +61,13 @@ func (in *Input) normalize() {
 	in.WorkDir = strings.TrimSpace(in.WorkDir)
 	in.ScriptSource = strings.TrimSpace(in.ScriptSource)
 	in.ScriptPath = strings.TrimSpace(in.ScriptPath)
+	in.NodeVersion = strings.TrimSpace(in.NodeVersion)
+	switch low := strings.ToLower(in.NodeVersion); low {
+	case "", node.Auto:
+		in.NodeVersion = node.Auto
+	case node.None:
+		in.NodeVersion = low
+	}
 	if in.WorkDir != "" {
 		in.WorkDir = filepath.Clean(in.WorkDir)
 	}
@@ -98,6 +108,15 @@ func (in *Input) validate(dataDir string, creating bool) error {
 		}
 	default:
 		return invalid("script_source", "must be managed or repo")
+	}
+
+	if in.NodeVersion != node.Auto && in.NodeVersion != node.None {
+		if len(in.NodeVersion) > 50 {
+			return invalid("node_version", "must be at most 50 characters")
+		}
+		if _, err := node.ParseSpec(in.NodeVersion); err != nil {
+			return invalid("node_version", "%s", err)
+		}
 	}
 
 	if in.TimeoutSec < minTimeout || in.TimeoutSec > maxTimeout {

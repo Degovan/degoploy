@@ -56,8 +56,12 @@ type Project struct {
 	AutoPull     bool   `json:"auto_pull"`
 	TimeoutSec   int    `json:"timeout_sec"`
 	Enabled      bool   `json:"enabled"`
-	CreatedAt    string `json:"created_at"`
-	UpdatedAt    string `json:"updated_at"`
+	// NodeVersion is "auto", "none" or a version spec such as "22" or "lts".
+	NodeVersion string `json:"node_version"`
+	// NodeUsed is the Node.js version the latest deployment ran with ("" if none).
+	NodeUsed  string `json:"node_used"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 	// LastDeployment is the newest deployment, if any.
 	LastDeployment *Deployment `json:"last_deployment" tstype:"Deployment | null,required"`
 	// Health covers the last finished deployments; null when there are none.
@@ -427,6 +431,7 @@ type UpdateProjectRequest struct {
 	AutoPull     *bool   `json:"auto_pull,omitempty"`
 	TimeoutSec   *int    `json:"timeout_sec,omitempty"`
 	Enabled      *bool   `json:"enabled,omitempty"`
+	NodeVersion  *string `json:"node_version,omitempty"`
 }
 
 // UpdateUserRequest is a partial update; omitted fields keep their value.
@@ -505,4 +510,64 @@ type OIDCDiscovery struct {
 	ScopesSupported       []string `json:"scopes_supported"`
 	ClaimsSupported       []string `json:"claims_supported"`
 	CheckedAt             string   `json:"checked_at"`
+}
+
+// NodeStatus is the Node.js page: the versions installed for deploy scripts.
+type NodeStatus struct {
+	// Platform is the build degoploy downloads, such as "linux-x64".
+	Platform string `json:"platform"`
+	Mirror   string `json:"mirror"`
+	// Default is the spec used by projects on "auto" whose repository names
+	// no version; "" when none is set.
+	Default   string        `json:"default"`
+	Installed []NodeVersion `json:"installed"`
+	TotalSize int64         `json:"total_size"`
+	// Installing lists downloads in progress, started here, from the CLI or by a deployment.
+	Installing []NodeProgress `json:"installing"`
+}
+
+type NodeProgress struct {
+	Version string `json:"version"`
+	Phase   string `json:"phase" tstype:"'downloading' | 'unpacking'"`
+	Done    int64  `json:"done"`
+	// Total is 0 when the mirror does not say how big the download is.
+	Total int64 `json:"total"`
+}
+
+type NodeVersion struct {
+	Version     string `json:"version"`
+	LTS         string `json:"lts"`
+	Size        int64  `json:"size"`
+	InstalledAt string `json:"installed_at"`
+	// Default: the default spec picks this version.
+	Default bool `json:"default"`
+	// UsedBy names the projects whose latest deployment ran with this version.
+	UsedBy []string `json:"used_by"`
+	// Pinned names the projects that ask for exactly this version; update keeps it.
+	Pinned []string `json:"pinned"`
+}
+
+// NodeRelease is the newest release of one major line.
+type NodeRelease struct {
+	Version   string `json:"version"`
+	LTS       string `json:"lts"`
+	Date      string `json:"date"`
+	Installed bool   `json:"installed"`
+}
+
+// NodeSpecRequest names a version: "22", "20.11.1", "lts" or "" (default only).
+type NodeSpecRequest struct {
+	Spec string `json:"spec"`
+}
+
+type NodeUpdateResult struct {
+	Changes []NodeChange `json:"changes"`
+	Status  NodeStatus   `json:"status"`
+}
+
+type NodeChange struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	// Removed: From was removed; false when a project pins it.
+	Removed bool `json:"removed"`
 }

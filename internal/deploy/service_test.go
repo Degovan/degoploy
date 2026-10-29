@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/degovan/degoploy/internal/node"
+	"github.com/degovan/degoploy/internal/node/nodetest"
 	"github.com/degovan/degoploy/internal/project"
 	"github.com/degovan/degoploy/internal/realtime"
 	"github.com/degovan/degoploy/internal/secrets"
@@ -407,5 +409,68 @@ exit 4`, 0)
 	d = f.wait(f.enqueue(p, nil).ID, store.DeploySuccess, store.DeployFailed)
 	if d.Status != store.DeployFailed || !strings.Contains(d.Error, "secret BROKEN") || d.ScriptStartedAt != nil {
 		t.Fatalf("broken secret: status %s error %q script started %v", d.Status, d.Error, d.ScriptStartedAt)
+	}
+}
+
+func TestDeployNode(t *testing.T) {
+	f := newFixture(t)
+	mirror := nodetest.NewMirror(t,
+		nodetest.Release{Version: "v22.12.0", LTS: "Jod"},
+		nodetest.Release{Version: "v20.19.0", LTS: "Iron"},
+	)
+	f.svc.Node = node.New(filepath.Join(f.root, "data", "node"), mirror.URL)
+	ctx := context.Background()
+	script := `echo "node=$(node) npm=$(npm) prompt=$COREPACK_ENABLE_DOWNLOAD_PROMPT" > node.txt`
+
+	// .nvmrc in the repository picks the version, which is installed on first use.
+	f.commit(".nvmrc", "lts/iron\n", "pin node")
+	p := f.project("web", script, 0)
+	d := f.wait(f.enqueue(p, nil).ID, store.DeploySuccess, store.DeployFailed)
+	log := readLog(t, d)
+	if d.Status != store.DeploySuccess {
+		t.Fatalf("status %s\n%s", d.Status, log)
+	}
+	if got, _ := os.ReadFile(filepath.Join(p.WorkDir, "node.txt")); string(got) != "node=v20.19.0 npm=npm prompt=0\n" {
+		t.Fatalf("node.txt = %q\n%s", got, log)
+	}
+	for _, want := range []string{"Installing Node.js v20.19.0", "checksum verified", "node: v20.19.0 (lts/iron from .nvmrc)"} {
+		if !strings.Contains(log, want) {
+			t.Fatalf("log lacks %q:\n%s", want, log)
+		}
+	}
+	if p, _ = f.store.ProjectByID(ctx, p.ID); p.NodeUsed != "v20.19.0" {
+		t.Fatalf("node_used = %q", p.NodeUsed)
+	}
+
+	// The next deployment reuses the installed version.
+	d = f.wait(f.enqueue(p, nil).ID, store.DeploySuccess, store.DeployFailed)
+	if log := readLog(t, d); strings.Contains(log, "Installing") || mirror.Downloads.Load() != 1 {
+		t.Fatalf("installed again (%d downloads):\n%s", mirror.Downloads.Load(), log)
+	}
+
+	// Without a version in the repository, the default version applies.
+	run(t, f.src, "git", "rm", "-q", ".nvmrc")
+	f.commit("README.md", "v2\n", "unpin node")
+	f.store.SetSetting(ctx, store.SettingNodeDefault, "22")
+	d = f.wait(f.enqueue(p, nil).ID, store.DeploySuccess, store.DeployFailed)
+	if log := readLog(t, d); !strings.Contains(log, "node: v22.12.0 (22 from the default version)") {
+		t.Fatalf("default version not used:\n%s", log)
+	}
+
+	// "none" leaves PATH alone: no managed version, whatever node the server has.
+	p.NodeVersion = node.None
+	f.store.UpdateProject(ctx, p)
+	d = f.wait(f.enqueue(p, nil).ID, store.DeploySuccess, store.DeployFailed)
+	got, _ := os.ReadFile(filepath.Join(p.WorkDir, "node.txt"))
+	if log := readLog(t, d); strings.Contains(log, "node: ") || strings.Contains(string(got), "node=v22.12.0") {
+		t.Fatalf("managed node used with none: %q\n%s", got, log)
+	}
+
+	// A version that does not exist fails the deployment with a clear reason.
+	p.NodeVersion = "19"
+	f.store.UpdateProject(ctx, p)
+	d = f.wait(f.enqueue(p, nil).ID, store.DeploySuccess, store.DeployFailed)
+	if d.Status != store.DeployFailed || !strings.Contains(d.Error, "Node.js 19 (from project settings)") {
+		t.Fatalf("status %s error %q", d.Status, d.Error)
 	}
 }

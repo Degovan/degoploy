@@ -23,6 +23,9 @@ local_login: true
 # Leave unset to use <data_dir>/secret.key, created on first start. Back it up: without
 # the key, stored secrets cannot be decrypted.
 # secret_key: ${DEGOPLOY_SECRET_KEY}
+# Where Node.js releases for deploy scripts are downloaded from (default
+# https://nodejs.org/dist). A mirror needs the same layout.
+# node_mirror: https://nodejs.org/dist
 
 oidc:
   enabled: false

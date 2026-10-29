@@ -9,6 +9,7 @@ import (
 	"maps"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/degovan/degoploy/internal/auth"
 	"github.com/degovan/degoploy/internal/config"
 	"github.com/degovan/degoploy/internal/httpx"
+	"github.com/degovan/degoploy/internal/node"
 	"github.com/degovan/degoploy/internal/store"
 )
 
@@ -73,6 +75,7 @@ type Deps struct {
 	Config  *config.Config
 	Store   *store.Store
 	Audit   *audit.Logger
+	Node    *node.Manager
 	Version string
 	Started time.Time
 	Local   bool
@@ -82,6 +85,9 @@ type handler struct{ Deps }
 
 // NewHandler serves the admin API that Client calls.
 func NewHandler(d Deps) http.Handler {
+	if d.Node == nil {
+		d.Node = node.New(filepath.Join(d.Config.DataDir, "node"), d.Config.NodeMirror)
+	}
 	h := &handler{d}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/status", h.status)
@@ -91,6 +97,7 @@ func NewHandler(d Deps) http.Handler {
 	mux.HandleFunc("PUT /v1/users/{name}/password", h.setPassword)
 	mux.HandleFunc("GET /v1/config/check", h.checkConfig)
 	mux.HandleFunc("GET /v1/backup", h.backup)
+	h.registerNode(mux)
 	return mux
 }
 
