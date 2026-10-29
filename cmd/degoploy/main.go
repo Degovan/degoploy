@@ -123,10 +123,15 @@ func runServe(args []string) error {
 	if err != nil {
 		return fmt.Errorf("secret key: %w", err)
 	}
-	// The SSO page writes the client secret encrypted with this key.
+	// The SSO and Email pages write secrets encrypted with this key.
 	if sealed, ok := strings.CutPrefix(cfg.OIDC.ClientSecret, config.SealedPrefix); ok {
 		if cfg.OIDC.ClientSecret, err = box.Open(sealed, config.OIDCSecretScope); err != nil {
 			return fmt.Errorf("oidc client_secret: %w", err)
+		}
+	}
+	if sealed, ok := strings.CutPrefix(cfg.SMTP.Password, config.SealedPrefix); ok {
+		if cfg.SMTP.Password, err = box.Open(sealed, config.SMTPPasswordScope); err != nil {
+			return fmt.Errorf("smtp password: %w", err)
 		}
 	}
 

@@ -40,3 +40,14 @@ oidc:
     "my-org/devops": deployer
     "*": viewer
   sync_role_on_login: true
+
+# Outgoing mail for invitations. Also editable on the Email page; inviting people is
+# enabled once a test email has been delivered with the current settings.
+smtp:
+  host: smtp.example.com
+  port: 587
+  encryption: starttls # starttls, tls (implicit, port 465) or none
+  username: no-reply@example.com
+  password: ${DEGOPLOY_SMTP_PASSWORD}
+  from_name: degoploy
+  from_address: no-reply@example.com

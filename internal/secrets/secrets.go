@@ -8,8 +8,11 @@ package secrets
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -26,7 +29,8 @@ const sealedPrefix = "v1:"
 
 // Box seals and opens values with one key.
 type Box struct {
-	aead cipher.AEAD
+	aead   cipher.AEAD
+	macKey []byte
 }
 
 func New(key []byte) (*Box, error) {
@@ -41,7 +45,22 @@ func New(key []byte) (*Box, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Box{aead: aead}, nil
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte("degoploy mac key"))
+	return &Box{aead: aead, macKey: mac.Sum(nil)}, nil
+}
+
+// MAC returns a keyed fingerprint of data, for telling whether settings that
+// include a secret have changed without storing anything derived from the
+// secret alone.
+func (b *Box) MAC(scope string, data ...string) string {
+	mac := hmac.New(sha256.New, b.macKey)
+	mac.Write([]byte(scope))
+	for _, d := range data {
+		mac.Write([]byte{0})
+		mac.Write([]byte(d))
+	}
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 // LoadKey decodes encoded when it is set; otherwise it reads the key file at

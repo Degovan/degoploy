@@ -27,6 +27,7 @@ type Config struct {
 	// means a key file in the data dir, created on first start.
 	SecretKey string `yaml:"secret_key"`
 	OIDC      OIDC   `yaml:"oidc"`
+	SMTP      SMTP   `yaml:"smtp"`
 
 	// Parsed from TrustedProxies by Load.
 	TrustedPrefixes []netip.Prefix `yaml:"-"`
@@ -51,6 +52,41 @@ type OIDC struct {
 	SyncRoleOnLogin bool              `yaml:"sync_role_on_login"`
 }
 
+// SMTP is the outgoing mail server for invitation emails.
+type SMTP struct {
+	Host string `yaml:"host"`
+	Port int    `yaml:"port"`
+	// Encryption is "starttls", "tls" (implicit, usually port 465) or "none".
+	Encryption  string `yaml:"encryption"`
+	Username    string `yaml:"username"`
+	Password    string `yaml:"password"`
+	FromName    string `yaml:"from_name"`
+	FromAddress string `yaml:"from_address"`
+}
+
+// Configured reports whether enough is set to try sending mail.
+func (s SMTP) Configured() bool { return s.Host != "" && s.Port > 0 && s.FromAddress != "" }
+
+// ValidateSMTP checks the SMTP settings. Empty host means mail is off.
+func ValidateSMTP(s SMTP) error {
+	if s.Host == "" {
+		return nil
+	}
+	var errs []error
+	if s.Port < 1 || s.Port > 65535 {
+		errs = append(errs, errors.New("smtp: port must be between 1 and 65535"))
+	}
+	switch s.Encryption {
+	case "starttls", "tls", "none":
+	default:
+		errs = append(errs, fmt.Errorf("smtp: encryption %q; use starttls, tls or none", s.Encryption))
+	}
+	if !strings.Contains(s.FromAddress, "@") {
+		errs = append(errs, errors.New("smtp: from_address must be an email address"))
+	}
+	return errors.Join(errs...)
+}
+
 func Default() Config {
 	return Config{
 		Listen:         ":8080",
@@ -65,6 +101,7 @@ func Default() Config {
 			GroupsClaim:     "groups",
 			SyncRoleOnLogin: true,
 		},
+		SMTP: SMTP{Port: 587, Encryption: "starttls", FromName: "degoploy"},
 	}
 }
 
@@ -113,6 +150,10 @@ func applyEnv(cfg *Config) error {
 		"DEGOPLOY_OIDC_CLIENT_ID":     &cfg.OIDC.ClientID,
 		"DEGOPLOY_OIDC_CLIENT_SECRET": &cfg.OIDC.ClientSecret,
 		"DEGOPLOY_OIDC_REDIRECT_URL":  &cfg.OIDC.RedirectURL,
+		"DEGOPLOY_SMTP_HOST":          &cfg.SMTP.Host,
+		"DEGOPLOY_SMTP_USERNAME":      &cfg.SMTP.Username,
+		"DEGOPLOY_SMTP_PASSWORD":      &cfg.SMTP.Password,
+		"DEGOPLOY_SMTP_FROM_ADDRESS":  &cfg.SMTP.FromAddress,
 	}
 	for k, p := range str {
 		if v, ok := os.LookupEnv(k); ok {
@@ -142,6 +183,14 @@ func applyEnv(cfg *Config) error {
 			return fmt.Errorf("DEGOPLOY_MAX_PARALLEL: %w", err)
 		}
 		cfg.MaxParallel = n
+	}
+	if v, ok := os.LookupEnv("DEGOPLOY_SMTP_PORT"); ok {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("DEGOPLOY_SMTP_PORT: %w", err)
+		}
+		cfg.SMTP.Port = n
+		lockEnv(cfg, "DEGOPLOY_SMTP_PORT")
 	}
 	if v, ok := os.LookupEnv("DEGOPLOY_TRUSTED_PROXIES"); ok {
 		cfg.TrustedProxies = splitList(v)
@@ -183,6 +232,9 @@ func (c *Config) finalize() error {
 		c.OIDC.GroupsClaim = "groups"
 	}
 	if err := ValidateSignIn(c.LocalLogin, c.OIDC); err != nil {
+		errs = append(errs, err)
+	}
+	if err := ValidateSMTP(c.SMTP); err != nil {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)

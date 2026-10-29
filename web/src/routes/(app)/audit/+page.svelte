@@ -38,6 +38,7 @@
 	import MailIcon from '@lucide/svelte/icons/mail';
 	import RocketIcon from '@lucide/svelte/icons/rocket';
 	import SearchIcon from '@lucide/svelte/icons/search';
+	import ServerIcon from '@lucide/svelte/icons/server';
 	import UserCogIcon from '@lucide/svelte/icons/user-cog';
 	import UsersIcon from '@lucide/svelte/icons/users';
 
@@ -49,7 +50,8 @@
 		'deployment.': RocketIcon,
 		'user.': UserCogIcon,
 		'invite.': MailIcon,
-		'sso.': FingerprintIcon
+		'sso.': FingerprintIcon,
+		'email.': ServerIcon
 	};
 	const iconFor = (action: string) =>
 		action === 'auth.logout' ? LogOutIcon : categoryIcons[categoryOf(action) ?? 'auth.'];

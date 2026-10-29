@@ -10,6 +10,7 @@ import (
 
 	"github.com/degovan/degoploy/internal/audit"
 	"github.com/degovan/degoploy/internal/auth"
+	"github.com/degovan/degoploy/internal/config"
 	"github.com/degovan/degoploy/internal/httpx"
 	"github.com/degovan/degoploy/internal/store"
 )
@@ -52,6 +53,22 @@ func (a *API) invitesAllowed(w http.ResponseWriter) bool {
 	return true
 }
 
+// inviteMailer returns the SMTP settings invitations go out with, or answers
+// 409 while email is not set up and tested.
+func (a *API) inviteMailer(w http.ResponseWriter, r *http.Request) (config.SMTP, bool) {
+	ready, s, err := a.emailReady(r)
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return s, false
+	}
+	if !ready {
+		httpx.Error(w, http.StatusConflict, "email_not_ready",
+			"invitations are sent by email: configure SMTP and send a successful test email first")
+		return s, false
+	}
+	return s, true
+}
+
 func (a *API) listInvites(w http.ResponseWriter, r *http.Request) {
 	invites, err := a.store.ListInvites(r.Context())
 	if err != nil {
@@ -68,6 +85,10 @@ func (a *API) listInvites(w http.ResponseWriter, r *http.Request) {
 func (a *API) createInvites(w http.ResponseWriter, r *http.Request) {
 	ident := auth.FromContext(r.Context())
 	if !a.invitesAllowed(w) {
+		return
+	}
+	smtp, ok := a.inviteMailer(w, r)
+	if !ok {
 		return
 	}
 	var req CreateInvitesRequest
@@ -144,7 +165,8 @@ func (a *API) createInvites(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.recordInvite(r, ident.User.ID, audit.InviteCreate, inv)
-		out = append(out, InviteLink{Invite: toInvite(inv), Token: token})
+		out = append(out, InviteLink{Invite: toInvite(inv), Token: token,
+			EmailError: a.sendInvite(r, smtp, inviterName(ident.User), inv, token)})
 	}
 	httpx.JSON(w, http.StatusCreated, out)
 }
@@ -154,8 +176,12 @@ func (a *API) renewInvite(w http.ResponseWriter, r *http.Request) {
 	if !a.invitesAllowed(w) {
 		return
 	}
-	inv, ok := a.loadInvite(w, r)
+	smtp, ok := a.inviteMailer(w, r)
 	if !ok {
+		return
+	}
+	inv, found := a.loadInvite(w, r)
+	if !found {
 		return
 	}
 	token, hash := auth.NewToken()
@@ -165,7 +191,8 @@ func (a *API) renewInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.recordInvite(r, ident.User.ID, audit.InviteRenew, inv)
-	httpx.JSON(w, http.StatusOK, InviteLink{Invite: toInvite(inv), Token: token})
+	httpx.JSON(w, http.StatusOK, InviteLink{Invite: toInvite(inv), Token: token,
+		EmailError: a.sendInvite(r, smtp, inviterName(ident.User), inv, token)})
 }
 
 func (a *API) revokeInvite(w http.ResponseWriter, r *http.Request) {
@@ -306,6 +333,9 @@ func (a *API) recordInvite(r *http.Request, actorID int64, action string, inv *s
 		Detail: map[string]any{"email": inv.Email, "role": inv.Role}, IP: a.clientIP(r),
 	})
 }
+
+// inviterName is how invitation emails name the admin who sent them.
+func inviterName(u *store.User) string { return firstNonEmpty(u.DisplayName, u.Username) }
 
 // validEmail is a sanity check, not RFC 5322: one @ with text on both sides and no spaces.
 func validEmail(e string) bool {

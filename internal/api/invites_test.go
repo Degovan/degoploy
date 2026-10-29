@@ -5,16 +5,23 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/cookiejar"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/degovan/degoploy/internal/api"
+	"github.com/degovan/degoploy/internal/config"
 	"github.com/degovan/degoploy/internal/httpx"
+	"github.com/degovan/degoploy/internal/mail/smtptest"
 	"github.com/degovan/degoploy/internal/store"
 )
 
 func TestInvites(t *testing.T) {
-	srv, st := newTestServer(t)
+	mailbox := smtptest.New(t)
+	srv, st := newTestServerWith(t, func(cfg *config.Config, _ string) {
+		cfg.SMTP = config.SMTP{Host: mailbox.Host, Port: mailbox.Port, Encryption: "none",
+			FromName: "Degoploy", FromAddress: "no-reply@example.com"}
+	})
 	createUser(t, st, "admin", "admin-password-1", store.RoleAdmin)
 	createUser(t, st, "dep", "deployer-password", store.RoleDeployer)
 	admin := login(t, srv.URL, "admin", "admin-password-1")
@@ -25,7 +32,16 @@ func TestInvites(t *testing.T) {
 		t.Fatalf("deployer invite: %d", code)
 	}
 
+	// Invitations go out by email, so they wait for a delivered test email.
 	var e httpx.ErrorBody
+	if code := admin.do("POST", "/api/v1/invites", `{"emails":["x@example.com"],"role":"viewer"}`, &e); code != 409 || e.Code != "email_not_ready" {
+		t.Fatalf("invite before email test: %d %+v", code, e)
+	}
+	var es api.EmailStatus
+	if code := admin.do("POST", "/api/v1/email/test", `{"to":"admin@example.com"}`, &es); code != 200 || !es.Ready {
+		t.Fatalf("test email: %d %+v", code, es)
+	}
+
 	for _, c := range []struct{ body, field string }{
 		{`{"emails":[],"role":"viewer"}`, "emails"},
 		{`{"emails":["nope"],"role":"viewer"}`, "emails"},
@@ -43,8 +59,13 @@ func TestInvites(t *testing.T) {
 		`{"emails":["fajar@example.com"," sinta@example.com","Fajar@example.com"],"role":"deployer"}`, &links); code != 201 || len(links) != 2 {
 		t.Fatalf("create invites: %d %+v", code, links)
 	}
-	if links[0].Token == "" || links[0].Invite.InvitedBy != "admin" || links[0].Invite.Role != "deployer" {
+	if links[0].Token == "" || links[0].Invite.InvitedBy != "admin" || links[0].Invite.Role != "deployer" || links[0].EmailError != "" {
 		t.Fatalf("invite link = %+v", links[0])
+	}
+	// The test email plus one invitation per person, each with its own link.
+	if msgs := mailbox.Messages(); len(msgs) != 3 || msgs[1].To[0] != "fajar@example.com" ||
+		!strings.Contains(strings.ReplaceAll(msgs[1].Data, "=\r\n", ""), "/invite/"+links[0].Token) {
+		t.Fatalf("invitation emails = %+v", msgs)
 	}
 	if code := admin.do("POST", "/api/v1/invites", `{"emails":["sinta@example.com"],"role":"viewer"}`, &e); code != 422 {
 		t.Fatalf("re-invite: %d", code)

@@ -310,6 +310,59 @@ export interface RoleMember {
 	disabled: boolean;
 }
 /**
+ * EmailStatus describes the SMTP settings (never the password) and whether
+ * invites can be sent.
+ */
+export interface EmailStatus {
+	host: string;
+	port: number /* int */;
+	encryption: 'starttls' | 'tls' | 'none';
+	username: string;
+	password_set: boolean;
+	from_name: string;
+	from_address: string;
+	/**
+	 * Locked maps settings that come from the environment to their source.
+	 */
+	locked: { [key: string]: string };
+	config_path: string;
+	/**
+	 * Configured: host, port and from address are set.
+	 */
+	configured: boolean;
+	/**
+	 * Ready: a test email was delivered with the current settings, so invites go out.
+	 */
+	ready: boolean;
+	last_test: EmailTest | null;
+}
+/**
+ * EmailTest is the latest test email. Current is false when the settings
+ * changed since it was sent.
+ */
+export interface EmailTest {
+	to: string;
+	ok: boolean;
+	detail: string;
+	at: string;
+	current: boolean;
+}
+/**
+ * UpdateEmailRequest is a partial update of the SMTP settings. Password is write-only.
+ */
+export interface UpdateEmailRequest {
+	host?: string;
+	port?: number /* int */;
+	encryption?: 'starttls' | 'tls' | 'none';
+	username?: string;
+	password?: string;
+	from_name?: string;
+	from_address?: string;
+}
+export interface TestEmailRequest {
+	to: string;
+}
+/**
  * Invite is a pending invitation to create a local account.
  */
 export interface Invite {
@@ -335,6 +388,10 @@ export interface CreateInvitesRequest {
 export interface InviteLink {
 	invite: Invite;
 	token: string;
+	/**
+	 * EmailError is why the invitation email could not be sent; empty when it was.
+	 */
+	email_error: string;
 }
 /**
  * InvitePreview is what the accept page shows before the account exists.

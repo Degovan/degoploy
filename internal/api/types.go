@@ -284,6 +284,51 @@ type RoleMember struct {
 	Disabled    bool   `json:"disabled"`
 }
 
+// EmailStatus describes the SMTP settings (never the password) and whether
+// invites can be sent.
+type EmailStatus struct {
+	Host        string `json:"host"`
+	Port        int    `json:"port"`
+	Encryption  string `json:"encryption" tstype:"'starttls' | 'tls' | 'none'"`
+	Username    string `json:"username"`
+	PasswordSet bool   `json:"password_set"`
+	FromName    string `json:"from_name"`
+	FromAddress string `json:"from_address"`
+	// Locked maps settings that come from the environment to their source.
+	Locked     map[string]string `json:"locked"`
+	ConfigPath string            `json:"config_path"`
+	// Configured: host, port and from address are set.
+	Configured bool `json:"configured"`
+	// Ready: a test email was delivered with the current settings, so invites go out.
+	Ready    bool       `json:"ready"`
+	LastTest *EmailTest `json:"last_test" tstype:"EmailTest | null,required"`
+}
+
+// EmailTest is the latest test email. Current is false when the settings
+// changed since it was sent.
+type EmailTest struct {
+	To      string `json:"to"`
+	OK      bool   `json:"ok"`
+	Detail  string `json:"detail"`
+	At      string `json:"at"`
+	Current bool   `json:"current"`
+}
+
+// UpdateEmailRequest is a partial update of the SMTP settings. Password is write-only.
+type UpdateEmailRequest struct {
+	Host        *string `json:"host,omitempty"`
+	Port        *int    `json:"port,omitempty"`
+	Encryption  *string `json:"encryption,omitempty" tstype:"'starttls' | 'tls' | 'none'"`
+	Username    *string `json:"username,omitempty"`
+	Password    *string `json:"password,omitempty"`
+	FromName    *string `json:"from_name,omitempty"`
+	FromAddress *string `json:"from_address,omitempty"`
+}
+
+type TestEmailRequest struct {
+	To string `json:"to"`
+}
+
 // Invite is a pending invitation to create a local account.
 type Invite struct {
 	ID        int64  `json:"id"`
@@ -306,6 +351,8 @@ type CreateInvitesRequest struct {
 type InviteLink struct {
 	Invite Invite `json:"invite"`
 	Token  string `json:"token"`
+	// EmailError is why the invitation email could not be sent; empty when it was.
+	EmailError string `json:"email_error"`
 }
 
 // InvitePreview is what the accept page shows before the account exists.

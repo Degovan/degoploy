@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { createQuery } from '@tanstack/svelte-query';
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { toast } from 'svelte-sonner';
 	import { api, ApiError, errorMessage } from '#lib/api/client.js';
+	import { emailApi, emailKeys } from '#lib/api/email.js';
 	import { inviteUrl, invitesApi } from '#lib/api/users.js';
 	import type { AuthProviders, InviteLink, Role } from '#lib/api/types.gen.js';
 	import { copyText } from '#lib/clipboard.js';
@@ -11,16 +14,22 @@
 	import { cn } from '#lib/utils.js';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
+	import CircleCheckIcon from '@lucide/svelte/icons/circle-check';
+	import CircleXIcon from '@lucide/svelte/icons/circle-x';
 	import CopyIcon from '@lucide/svelte/icons/copy';
 	import FingerprintIcon from '@lucide/svelte/icons/fingerprint-pattern';
-	import LinkIcon from '@lucide/svelte/icons/link';
 	import LoaderIcon from '@lucide/svelte/icons/loader-circle';
-	import MailPlusIcon from '@lucide/svelte/icons/mail-plus';
+	import MailIcon from '@lucide/svelte/icons/mail';
+	import MailWarningIcon from '@lucide/svelte/icons/mail-warning';
+	import SendIcon from '@lucide/svelte/icons/send';
+	import Settings2Icon from '@lucide/svelte/icons/settings-2';
 	import TimerIcon from '@lucide/svelte/icons/timer';
 	import XIcon from '@lucide/svelte/icons/x';
 
-	// Two steps: the invite form, then the links it produced. Setting `links`
-	// before opening shows only the second step (used after renewing an invite).
+	// Two steps: the invite form, then the result of sending (with a copy of each
+	// link). Setting `links` before opening shows only the second step (used
+	// after resending an invite). Invitations go out by email, so until SMTP is
+	// set up and tested the dialog shows what is missing instead of the form.
 	let {
 		open = $bindable(false),
 		links = $bindable(null),
@@ -36,6 +45,26 @@
 		queryFn: () => api.get<AuthProviders>('/auth/providers'),
 		staleTime: Infinity
 	}));
+
+	const email = createQuery(() => ({
+		queryKey: emailKeys.status,
+		queryFn: emailApi.status,
+		enabled: open,
+		staleTime: 0
+	}));
+	const ready = $derived(email.data?.ready ?? false);
+	// The second checklist step: where the latest test email stands.
+	const testStep = $derived.by(() => {
+		const t = email.data?.last_test;
+		if (!t) return { dot: 'bg-muted-foreground/60', label: 'Not tested', done: false };
+		if (!t.current) return { dot: 'bg-amber-400', label: 'Needs a new test', done: false };
+		if (!t.ok) return { dot: 'bg-red-500', label: 'Failed', done: false };
+		return { dot: 'bg-emerald-400', label: 'Delivered', done: true };
+	});
+	function setUpEmail() {
+		open = false;
+		goto(resolve('/(app)/email'));
+	}
 
 	let emails = $state<string[]>([]);
 	let draft = $state('');
@@ -118,10 +147,10 @@
 
 	let form = $state<HTMLFormElement | null>(null);
 	function onContentKeydown(e: KeyboardEvent) {
-		if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && form) {
-			e.preventDefault();
-			form.requestSubmit();
-		}
+		if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || links) return;
+		e.preventDefault();
+		if (form) form.requestSubmit();
+		else if (email.data && !ready) setUpEmail();
 	}
 
 	async function submit(e: SubmitEvent) {
@@ -145,6 +174,8 @@
 		} catch (err) {
 			if (err instanceof ApiError && err.field) errors = { [err.field]: err.message };
 			else formError = errorMessage(err);
+			// Email may have stopped working since the dialog opened.
+			if (err instanceof ApiError && err.code === 'email_not_ready') email.refetch();
 		} finally {
 			saving = false;
 		}
@@ -159,6 +190,15 @@
 		setTimeout(() => copied === which && (copied = null), 1500);
 	}
 
+	const failedCount = $derived((links ?? []).filter((l) => l.email_error).length);
+	const sender = $derived(
+		email.data
+			? email.data.from_name
+				? `${email.data.from_name} <${email.data.from_address}>`
+				: email.data.from_address
+			: ''
+	);
+
 	const allLinks = $derived(
 		(links ?? []).map((l) => `${l.invite.email}: ${inviteUrl(l.token)}`).join('\n')
 	);
@@ -172,7 +212,7 @@
 	<Dialog.Content
 		onkeydown={onContentKeydown}
 		onOpenAutoFocus={(e) => {
-			if (links) return;
+			if (links || !ready) return;
 			e.preventDefault();
 			// The field mounts with the content; focus it once it is in the DOM.
 			requestAnimationFrame(() => field?.focus());
@@ -186,10 +226,19 @@
 			>
 				<Dialog.Header class="gap-1.5">
 					<Dialog.Title class="text-xl font-semibold tracking-[-0.4px]">
-						{links.length === 1 ? 'Invite link ready' : `${links.length} invite links ready`}
+						{#if failedCount === 0}
+							{links.length === 1 ? 'Invite sent' : `${links.length} invites sent`}
+						{:else if failedCount === links.length}
+							{links.length === 1 ? 'Invite email failed' : 'Invite emails failed'}
+						{:else}
+							{links.length - failedCount} of {links.length} invites sent
+						{/if}
 					</Dialog.Title>
 					<Dialog.Description class="text-sm text-muted-foreground">
-						Send each person their link. It works once, expires in 7 days, and is not shown again.
+						{failedCount
+							? 'Some emails could not be sent. Copy those links and send them another way.'
+							: 'Each person got an email with their link.'} Links work once, expire in 7 days and are
+						not shown again.
 					</Dialog.Description>
 				</Dialog.Header>
 				<ul class="flex flex-col overflow-hidden rounded-lg border bg-background">
@@ -198,12 +247,24 @@
 						<li class="flex flex-col gap-2 border-b px-3.5 py-3 last:border-b-0">
 							<div class="flex items-center justify-between gap-3">
 								<span class="truncate text-[13px] font-medium">{l.invite.email}</span>
-								<span
-									class="inline-flex h-5 shrink-0 items-center gap-1 text-xs text-muted-foreground [&_svg]:size-3"
-								>
-									<info.icon />{info.label}
+								<span class="flex shrink-0 items-center gap-3 text-xs text-muted-foreground">
+									<span class="inline-flex items-center gap-1 [&_svg]:size-3">
+										<info.icon />{info.label}
+									</span>
+									{#if l.email_error}
+										<span class="inline-flex items-center gap-1 text-destructive"
+											><CircleXIcon class="size-3" />Not sent</span
+										>
+									{:else}
+										<span class="inline-flex items-center gap-1 text-emerald-400"
+											><CircleCheckIcon class="size-3" />Emailed</span
+										>
+									{/if}
 								</span>
 							</div>
+							{#if l.email_error}
+								<p class="text-xs/normal break-words text-destructive">{l.email_error}</p>
+							{/if}
 							<div class="flex items-center gap-2">
 								<input
 									readonly
@@ -240,6 +301,125 @@
 				{/if}
 				<Button class="h-9 px-3.5 text-[13px]" onclick={() => (open = false)}>Done</Button>
 			</div>
+		{:else if !email.data}
+			<div class="flex flex-col items-center gap-3 px-6 py-16 text-muted-foreground">
+				<Dialog.Title class="sr-only">Invite people</Dialog.Title>
+				{#if email.isError}
+					<CircleAlertIcon class="size-5 text-destructive" />
+					<p class="text-sm">{email.error.message}</p>
+				{:else}
+					<LoaderIcon class="size-5 animate-spin" />
+				{/if}
+			</div>
+		{:else if !ready}
+			{@const e = email.data}
+			<div
+				class="flex min-h-0 flex-1 [scrollbar-width:thin] flex-col gap-5 overflow-y-auto overscroll-contain p-6"
+			>
+				<div class="flex items-start justify-between gap-4">
+					<Dialog.Header class="gap-1.5">
+						<Dialog.Title class="text-xl font-semibold tracking-[-0.4px]"
+							>Invite people</Dialog.Title
+						>
+						<Dialog.Description class="text-sm text-muted-foreground">
+							Invitations are sent by email, so an SMTP server has to work first.
+						</Dialog.Description>
+					</Dialog.Header>
+					<Dialog.Close
+						class="-mt-1 -mr-1 flex size-[30px] shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none [&_svg]:size-[15px]"
+						aria-label="Close"
+					>
+						<XIcon />
+					</Dialog.Close>
+				</div>
+
+				<div class="flex flex-col items-center gap-3.5 px-2 pt-3 pb-1 text-center">
+					<span
+						class="flex size-12 items-center justify-center rounded-full border border-amber-400/20 bg-amber-400/10 text-amber-400"
+					>
+						<MailWarningIcon class="size-[22px]" />
+					</span>
+					<div class="flex max-w-[420px] flex-col gap-1.5">
+						<p class="text-base font-semibold">Set up email before inviting</p>
+						<p class="text-sm text-muted-foreground">
+							Connect an SMTP server and send one successful test email. Inviting unlocks as soon as
+							both are done.
+						</p>
+					</div>
+				</div>
+
+				<ol class="flex flex-col overflow-hidden rounded-lg border bg-background">
+					{#snippet step(
+						n: number,
+						done: boolean,
+						title: string,
+						desc: string,
+						dot: string,
+						status: string
+					)}
+						<li class="flex items-center gap-3.5 border-b px-4 py-3.5 last:border-b-0">
+							<span
+								class={cn(
+									'flex size-[26px] shrink-0 items-center justify-center rounded-full border font-mono text-xs',
+									done
+										? 'border-emerald-400/40 text-emerald-400'
+										: 'border-input text-muted-foreground'
+								)}
+							>
+								{#if done}<CheckIcon class="size-3.5" />{:else}{n}{/if}
+							</span>
+							<span class="flex min-w-0 flex-1 flex-col gap-0.5">
+								<span class="text-sm font-medium">{title}</span>
+								<span class="text-xs text-muted-foreground/80">{desc}</span>
+							</span>
+							<span class="flex shrink-0 items-center gap-2 text-xs text-muted-foreground/80">
+								<span class={cn('size-2 rounded-full', dot)}></span>{status}
+							</span>
+						</li>
+					{/snippet}
+					{@render step(
+						1,
+						e.configured,
+						'Configure an SMTP server',
+						'Host, port, credentials and sender address',
+						e.configured ? 'bg-emerald-400' : 'bg-muted-foreground/60',
+						e.configured ? 'Configured' : 'Not set'
+					)}
+					{@render step(
+						2,
+						testStep.done,
+						'Send a test email',
+						'Confirms that invitations actually arrive',
+						testStep.dot,
+						testStep.label
+					)}
+				</ol>
+
+				{#if providers.data?.oidc.enabled}
+					<p class="flex items-center gap-2 text-xs text-muted-foreground/80">
+						<FingerprintIcon class="size-3.5 shrink-0" />
+						Meanwhile, {providers.data.oidc.name} members can still sign in without an invite.
+					</p>
+				{/if}
+			</div>
+			<div
+				class="flex shrink-0 items-center justify-between gap-3 border-t bg-background px-6 py-4"
+			>
+				<Dialog.Close>
+					{#snippet child({ props })}
+						<Button {...props} variant="outline" class="h-9 px-3 text-[13px]">Cancel</Button>
+					{/snippet}
+				</Dialog.Close>
+				<div class="flex items-center gap-3">
+					<span class="hidden items-center gap-1 sm:flex" aria-hidden="true">
+						<kbd class={kbd}>{modKey}</kbd><kbd class={kbd}>↵</kbd>
+					</span>
+					<Button class="h-9 px-3.5 text-[13px]" onclick={setUpEmail}>
+						<Settings2Icon />
+						Set up SMTP
+					</Button>
+				</div>
+			</div>
 		{:else}
 			<form bind:this={form} class="contents" onsubmit={submit} novalidate>
 				<div
@@ -251,7 +431,7 @@
 								>Invite people</Dialog.Title
 							>
 							<Dialog.Description class="text-sm text-muted-foreground">
-								Each person gets a link to choose a username and password.
+								They'll get an email with a link to choose a username and password.
 							</Dialog.Description>
 						</Dialog.Header>
 						<Dialog.Close
@@ -358,14 +538,16 @@
 					</div>
 
 					<dl class="flex flex-col overflow-hidden rounded-lg border bg-background text-xs">
-						{#snippet row(Icon: typeof LinkIcon, key: string, value: string)}
+						{#snippet row(Icon: typeof MailIcon, key: string, value: string, mono = false)}
 							<div class="flex items-center gap-2.5 border-b px-3.5 py-2.5 last:border-b-0">
 								<Icon class="size-3.5 shrink-0 text-muted-foreground/80" />
 								<dt class="shrink-0 font-medium text-muted-foreground">{key}</dt>
-								<dd class="min-w-0 truncate text-muted-foreground/80">{value}</dd>
+								<dd class={cn('min-w-0 truncate text-muted-foreground/80', mono && 'font-mono')}>
+									{value}
+								</dd>
 							</div>
 						{/snippet}
-						{@render row(LinkIcon, 'Delivery', 'you copy each link and send it yourself')}
+						{@render row(MailIcon, 'Sent from', sender, true)}
 						{@render row(TimerIcon, 'Link expires', 'in 7 days')}
 						{#if providers.data?.oidc.enabled}
 							{@render row(
@@ -392,8 +574,8 @@
 							<kbd class={kbd}>{modKey}</kbd><kbd class={kbd}>↵</kbd>
 						</span>
 						<Button type="submit" class="h-9 px-3.5 text-[13px]" disabled={saving}>
-							{#if saving}<LoaderIcon class="animate-spin" />{:else}<MailPlusIcon />{/if}
-							{people > 1 ? `Invite ${people} people` : 'Create invite'}
+							{#if saving}<LoaderIcon class="animate-spin" />{:else}<SendIcon />{/if}
+							{people > 1 ? `Send ${people} invites` : 'Send invite'}
 						</Button>
 					</div>
 				</div>

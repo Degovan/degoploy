@@ -21,6 +21,9 @@ const SealedPrefix = "sealed:"
 // OIDCSecretScope binds a sealed client secret to its place in the config.
 const OIDCSecretScope = "config/oidc.client_secret"
 
+// SMTPPasswordScope binds a sealed SMTP password to its place in the config.
+const SMTPPasswordScope = "config/smtp.password"
+
 // envKeys maps DEGOPLOY_* variables to the sign-in setting they override.
 var envKeys = map[string]string{
 	"DEGOPLOY_LOCAL_LOGIN":        "local_login",
@@ -29,6 +32,11 @@ var envKeys = map[string]string{
 	"DEGOPLOY_OIDC_CLIENT_ID":     "oidc.client_id",
 	"DEGOPLOY_OIDC_CLIENT_SECRET": "oidc.client_secret",
 	"DEGOPLOY_OIDC_REDIRECT_URL":  "oidc.redirect_url",
+	"DEGOPLOY_SMTP_HOST":          "smtp.host",
+	"DEGOPLOY_SMTP_PORT":          "smtp.port",
+	"DEGOPLOY_SMTP_USERNAME":      "smtp.username",
+	"DEGOPLOY_SMTP_PASSWORD":      "smtp.password",
+	"DEGOPLOY_SMTP_FROM_ADDRESS":  "smtp.from_address",
 }
 
 func lockEnv(cfg *Config, envName string) {
@@ -53,9 +61,11 @@ func lockEnvRefs(raw []byte, locked map[string]string) {
 		}
 	}
 	check("local_login", mapValue(root, "local_login"))
-	if o := mapValue(root, "oidc"); o != nil && o.Kind == yaml.MappingNode {
-		for i := 0; i+1 < len(o.Content); i += 2 {
-			check("oidc."+o.Content[i].Value, o.Content[i+1])
+	for _, block := range []string{"oidc", "smtp"} {
+		if m := mapValue(root, block); m != nil && m.Kind == yaml.MappingNode {
+			for i := 0; i+1 < len(m.Content); i += 2 {
+				check(block+"."+m.Content[i].Value, m.Content[i+1])
+			}
 		}
 	}
 }
@@ -71,39 +81,14 @@ type SignIn struct {
 // keeping comments, the other settings, and every key in locked as it is. The
 // file is replaced atomically and keeps its permissions.
 func SaveSignIn(path string, s SignIn, locked map[string]string) error {
-	if path == "" {
-		return errors.New("no config file: start degoploy with --config to save settings")
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("read config: %w", err)
-	}
-	var doc yaml.Node
-	if len(bytes.TrimSpace(raw)) > 0 {
-		if err := yaml.Unmarshal(raw, &doc); err != nil {
-			return fmt.Errorf("parse config %s: %w", path, err)
-		}
-	}
-	if len(doc.Content) == 0 {
-		doc = yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode}}}
-	}
-	root := doc.Content[0]
-	if root.Kind != yaml.MappingNode {
-		return fmt.Errorf("config %s: top level is not a mapping", path)
-	}
+	return editFile(path, locked, func(root *yaml.Node, set setter) {
+		saveSignIn(root, s, set)
+	})
+}
 
-	set := func(m *yaml.Node, prefix, key string, value *yaml.Node) {
-		if _, ok := locked[prefix+key]; !ok {
-			setMapValue(m, key, value)
-		}
-	}
+func saveSignIn(root *yaml.Node, s SignIn, set setter) {
 	set(root, "", "local_login", boolNode(s.LocalLogin))
-
-	o := mapValue(root, "oidc")
-	if o == nil || o.Kind != yaml.MappingNode {
-		o = &yaml.Node{Kind: yaml.MappingNode}
-		setMapValue(root, "oidc", o)
-	}
+	o := block(root, "oidc")
 	set(o, "oidc.", "enabled", boolNode(s.OIDC.Enabled))
 	set(o, "oidc.", "provider_name", strNode(s.OIDC.ProviderName))
 	set(o, "oidc.", "issuer", strNode(s.OIDC.Issuer))
@@ -137,6 +122,56 @@ func SaveSignIn(path string, s SignIn, locked map[string]string) error {
 	}
 	set(o, "oidc.", "role_mapping", mapping)
 	set(o, "oidc.", "sync_role_on_login", boolNode(s.OIDC.SyncRoleOnLogin))
+}
+
+// SaveSMTP writes the smtp block into the YAML file at path like SaveSignIn.
+// password nil keeps the file's value.
+func SaveSMTP(path string, m SMTP, password *string, locked map[string]string) error {
+	return editFile(path, locked, func(root *yaml.Node, set setter) {
+		b := block(root, "smtp")
+		set(b, "smtp.", "host", strNode(m.Host))
+		set(b, "smtp.", "port", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.Itoa(m.Port)})
+		set(b, "smtp.", "encryption", strNode(m.Encryption))
+		set(b, "smtp.", "username", strNode(m.Username))
+		if password != nil {
+			set(b, "smtp.", "password", strNode(*password))
+		}
+		set(b, "smtp.", "from_name", strNode(m.FromName))
+		set(b, "smtp.", "from_address", strNode(m.FromAddress))
+	})
+}
+
+// setter replaces one key of a mapping unless the setting is locked.
+type setter func(m *yaml.Node, prefix, key string, value *yaml.Node)
+
+// editFile loads the YAML document at path (or starts an empty one), lets edit
+// change it, and writes it back atomically.
+func editFile(path string, locked map[string]string, edit func(root *yaml.Node, set setter)) error {
+	if path == "" {
+		return errors.New("no config file: start degoploy with --config to save settings")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("read config: %w", err)
+	}
+	var doc yaml.Node
+	if len(bytes.TrimSpace(raw)) > 0 {
+		if err := yaml.Unmarshal(raw, &doc); err != nil {
+			return fmt.Errorf("parse config %s: %w", path, err)
+		}
+	}
+	if len(doc.Content) == 0 {
+		doc = yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode}}}
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return fmt.Errorf("config %s: top level is not a mapping", path)
+	}
+	edit(root, func(m *yaml.Node, prefix, key string, value *yaml.Node) {
+		if _, ok := locked[prefix+key]; !ok {
+			setMapValue(m, key, value)
+		}
+	})
 
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
@@ -146,6 +181,16 @@ func SaveSignIn(path string, s SignIn, locked map[string]string) error {
 	}
 	enc.Close()
 	return writeAtomic(path, buf.Bytes())
+}
+
+// block returns the mapping under key, creating it when missing.
+func block(root *yaml.Node, key string) *yaml.Node {
+	m := mapValue(root, key)
+	if m == nil || m.Kind != yaml.MappingNode {
+		m = &yaml.Node{Kind: yaml.MappingNode}
+		setMapValue(root, key, m)
+	}
+	return m
 }
 
 func writeAtomic(path string, data []byte) error {

@@ -2,6 +2,7 @@
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { toast } from 'svelte-sonner';
 	import { api, errorMessage } from '#lib/api/client.js';
+	import { emailApi, emailKeys } from '#lib/api/email.js';
 	import { inviteKeys, invitesApi, userKeys, usersApi } from '#lib/api/users.js';
 	import type {
 		AuthProviders,
@@ -51,6 +52,9 @@
 	const ssoName = $derived(providers.data?.oidc.name || 'SSO');
 	// Invites create password accounts, so they need local login.
 	const canInvite = $derived(providers.data?.local ?? true);
+	// Resending emails a new link, so it needs working email.
+	const email = createQuery(() => ({ queryKey: emailKeys.status, queryFn: emailApi.status }));
+	const canResend = $derived(canInvite && !!email.data?.ready);
 
 	// One table: active users, then pending invites, then disabled users; you come first.
 	type Row =
@@ -534,8 +538,10 @@
 												`Resend invite to ${inv.email}`,
 												() => resend(inv),
 												SendIcon,
-												!canInvite,
-												'New invite link'
+												!canResend,
+												canResend
+													? 'Email a new invite link'
+													: 'Set up email on the Email page to resend invites'
 											)}
 										{/if}
 										{@render action(`Revoke invite for ${inv.email}`, () => askRevoke(inv), XIcon)}

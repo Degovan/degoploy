@@ -48,6 +48,9 @@ const (
 	InviteAccept = "invite.accept"
 
 	SSOUpdate = "sso.update"
+
+	EmailUpdate = "email.update"
+	EmailTest   = "email.test"
 )
 
 // sensitive actions touch credentials or access; the audit log highlights them.
@@ -60,6 +63,7 @@ var sensitive = map[string]bool{
 	UserDelete:              true,
 	UserPasswordReset:       true,
 	SSOUpdate:               true,
+	EmailUpdate:             true,
 }
 
 // IsSensitive reports whether an action is highlighted as sensitive.

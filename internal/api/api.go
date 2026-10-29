@@ -33,6 +33,8 @@ type API struct {
 	// changes at runtime; read them through signIn().
 	signInMu sync.RWMutex
 	oidc     *auth.OIDCProvider // nil when SSO is disabled
+	// mailMu guards cfg.SMTP, which the Email page changes; read it through smtp().
+	mailMu sync.RWMutex
 
 	pendingSSO *auth.PendingLogins
 	sso        ssoLog
@@ -91,6 +93,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	a.registerDeployments(mux)
 	a.registerUsers(mux)
 	a.registerInvites(mux)
+	a.registerEmail(mux)
 	mux.Handle("GET /api/v1/roles", authed(a.authz.Require(auth.ActionUserManage, http.HandlerFunc(a.listRoles))))
 	a.registerOIDC(mux)
 	mux.Handle("GET /ws", http.HandlerFunc(a.websocket))
