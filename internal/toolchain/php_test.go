@@ -144,7 +144,7 @@ func TestDetectPHP(t *testing.T) {
 		t.Fatalf("require.php: %q %q", s, src)
 	}
 	os.WriteFile(filepath.Join(dir, "composer.json"), []byte(`{"require":{"php":"^8.2"},"config":{"platform":{"php":"8.3.6"}}}`), 0o644)
-	if s, src, _ := p.Detect(dir); s != "8.3.6" || src != "composer.json config.platform.php" {
+	if s, src, _ := p.Detect(dir); s != "8.3" || src != "composer.json config.platform.php" {
 		t.Fatalf("platform: %q %q", s, src)
 	}
 	os.WriteFile(filepath.Join(dir, ".php-version"), []byte("8.4\n"), 0o644)

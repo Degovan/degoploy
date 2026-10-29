@@ -165,9 +165,9 @@ func (p *PHP) composer(ctx context.Context, m *Manager, w io.Writer) (string, er
 	return phar, os.Rename(tmp, phar)
 }
 
-// Detect reads .php-version, then config.platform.php and require.php in
-// composer.json. A composer.json alone means the project uses PHP without
-// naming a version.
+// Detect reads .php-version, then config.platform.php (as its minor line)
+// and require.php in composer.json. A composer.json alone means the project
+// uses PHP without naming a version.
 func (*PHP) Detect(dir string) (spec, source string, uses bool) {
 	if b, err := os.ReadFile(filepath.Join(dir, ".php-version")); err == nil {
 		if s := firstLine(string(b)); s != "" {
@@ -188,6 +188,11 @@ func (*PHP) Detect(dir string) (spec, source string, uses bool) {
 		return "", "", true
 	}
 	if s := strings.TrimSpace(c.Config.Platform["php"]); s != "" {
+		// The version Composer resolves dependencies for, often the line's
+		// first patch ("8.2.0"): it names the line, not a build to run.
+		if v, err := ParseVersion(s); err == nil {
+			s = fmt.Sprintf("%d.%d", v[0], v[1])
+		}
 		return s, "composer.json config.platform.php", true
 	}
 	if s := strings.TrimSpace(c.Require["php"]); s != "" {

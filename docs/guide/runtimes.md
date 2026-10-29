@@ -31,6 +31,8 @@ Next to each runtime, the card shows which version the latest deployment ran wit
 > [!TIP]
 > If you already use nvm or phpenv, keep your `.nvmrc` or `.php-version` file. Auto reads them the same way, including aliases such as `lts/*` and `lts/iron`.
 
+`config.platform.php` is read as its release line: `8.2.0` means any PHP 8.2, so the server's own 8.2 from apt or ondrej's PPA is used. Composer keeps resolving dependencies for the exact version written there.
+
 ## How a version is picked
 
 ```mermaid
