@@ -15,7 +15,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/degovan/degoploy/internal/gitops"
 	"github.com/degovan/degoploy/internal/project"
+	"github.com/degovan/degoploy/internal/runas"
 	"github.com/degovan/degoploy/internal/secrets"
 	"github.com/degovan/degoploy/internal/store"
 	"github.com/degovan/degoploy/internal/toolchain"
@@ -54,15 +56,28 @@ func (s *Service) run(ctx context.Context, d *store.Deployment, p *store.Project
 		note(w, "variables: %s", strings.Join(names, ", "))
 	}
 
+	// git and the script use the deploy key through an agent; the key file
+	// stays where only degoploy can read it.
+	gid, err := s.runner().GID()
+	if err != nil {
+		return s.outcome(ctx, w, start, err)
+	}
+	agent, err := gitops.StartAgent(s.projects.KeyPath(p), s.projects.KnownHostsPath(), gid)
+	if err != nil {
+		return s.outcome(ctx, w, start, fmt.Errorf("deploy key: %w", err))
+	}
+	defer agent.Close()
+	gitEnv := agent.Env().Environ()
+
 	if p.AutoPull {
-		if err := s.pull(ctx, d, p, w); err != nil {
+		if err := s.pull(ctx, d, p, w, gitEnv); err != nil {
 			return s.outcome(ctx, w, start, err)
 		}
 	} else if st, err := os.Stat(p.WorkDir); err != nil || !st.IsDir() {
 		return s.outcome(ctx, w, start, fmt.Errorf("working directory %s does not exist (auto pull is off)", p.WorkDir))
 	}
 
-	script, err := s.scriptPath(p)
+	script, content, err := s.script(p)
 	if err != nil {
 		return s.outcome(ctx, w, start, err)
 	}
@@ -75,11 +90,18 @@ func (s *Service) run(ctx context.Context, d *store.Deployment, p *store.Project
 	}
 	step(w, "Running %s", script)
 
-	cmd := exec.CommandContext(ctx, "bash", "--noprofile", "--norc", script)
-	cmd.Dir = p.WorkDir
-	cmd.Env = s.scriptEnv(d, p, rule, vars)
+	env := s.scriptEnv(d, p, rule, vars, gitEnv)
 	if len(bins) > 0 {
-		cmd.Env = withRuntimes(cmd.Env, bins, runtimeEnv)
+		env = withRuntimes(env, bins, runtimeEnv)
+	}
+	spec := runas.Spec{Dir: p.WorkDir, Env: env, Argv: []string{"bash", "--noprofile", "--norc", script}}
+	if content != "" {
+		// The deploy user cannot read degoploy's copy, so bash gets the text.
+		spec.Script, spec.Argv[3] = content, runas.ScriptPath
+	}
+	cmd, err := s.runner().Command(ctx, spec)
+	if err != nil {
+		return s.outcome(ctx, w, start, err)
 	}
 	setProcessGroup(cmd)
 	// Secrets are masked before the last-line summary sees the output.
@@ -94,7 +116,7 @@ func (s *Service) run(ctx context.Context, d *store.Deployment, p *store.Project
 	}
 	if err != nil {
 		// bash prefixes errors with the script path; the file name is enough.
-		last := strings.ReplaceAll(out.Last(), script+":", filepath.Base(script)+":")
+		last := strings.ReplaceAll(out.Last(), spec.Argv[3]+":", filepath.Base(script)+":")
 		err = &scriptError{err: err, last: last}
 	}
 	return s.outcome(ctx, w, start, err)
@@ -147,16 +169,17 @@ func (s *Service) outcome(ctx context.Context, w io.Writer, start time.Time, err
 }
 
 // pull makes work_dir a checkout of the deployment's commit using the project's deploy key.
-func (s *Service) pull(ctx context.Context, d *store.Deployment, p *store.Project, w io.Writer) error {
+func (s *Service) pull(ctx context.Context, d *store.Deployment, p *store.Project, w io.Writer, env []string) error {
 	if d.Ref == "" {
 		return errors.New("no ref to deploy")
 	}
-	env := s.projects.GitEnv(p).Environ()
+	mkdir := false
 	git := func(args ...string) error {
 		fmt.Fprintf(w, "%s$ git %s%s\n", ansiDim, strings.Join(args, " "), ansiReset)
-		cmd := exec.CommandContext(ctx, "git", args...)
-		cmd.Dir = p.WorkDir
-		cmd.Env = env
+		cmd, err := s.runner().Command(ctx, runas.Spec{Dir: p.WorkDir, Mkdir: mkdir, Env: env, Argv: append([]string{"git"}, args...)})
+		if err != nil {
+			return err
+		}
 		out := &lastLine{w: w}
 		cmd.Stdout, cmd.Stderr = out, out
 		setProcessGroup(cmd)
@@ -171,14 +194,13 @@ func (s *Service) pull(ctx context.Context, d *store.Deployment, p *store.Projec
 		if entries, err := os.ReadDir(p.WorkDir); err == nil && len(entries) > 0 {
 			return fmt.Errorf("%s exists, is not empty and is not a git repository; refusing to clone into it", p.WorkDir)
 		}
-		// Group-writable under the unit's umask (0002), so the web server's
-		// group can write to the app's storage folders.
-		if err := os.MkdirAll(p.WorkDir, 0o775); err != nil {
-			return err
-		}
+		// Made by the deploy user, group-writable under the unit's umask
+		// (0002), so the web server's group can write to the app's storage.
+		mkdir = true
 		if err := git("init", "--quiet", "--shared=group"); err != nil {
 			return err
 		}
+		mkdir = false
 		if err := git("remote", "add", "origin", p.RepoURL); err != nil {
 			return err
 		}
@@ -203,7 +225,7 @@ func (s *Service) pull(ctx context.Context, d *store.Deployment, p *store.Projec
 	}
 
 	// Record what was actually deployed (manual deploys only know the ref).
-	out, err := gitOutput(ctx, p.WorkDir, env, "log", "-1", "--format=%H%x00%s%x00%an")
+	out, err := s.gitOutput(ctx, p.WorkDir, env, "log", "-1", "--format=%H%x00%s%x00%an")
 	if err == nil {
 		parts := strings.SplitN(strings.TrimSpace(out), "\x00", 3)
 		if len(parts) == 3 {
@@ -215,19 +237,22 @@ func (s *Service) pull(ctx context.Context, d *store.Deployment, p *store.Projec
 	return nil
 }
 
-func (s *Service) scriptPath(p *store.Project) (string, error) {
+// script returns the path of the deploy script and, for a managed script,
+// its content.
+func (s *Service) script(p *store.Project) (path, content string, err error) {
 	if p.ScriptSource == store.ScriptManaged {
 		path := s.projects.ManagedScriptPath(p)
-		if _, err := os.Stat(path); err != nil {
-			return "", fmt.Errorf("managed deploy script missing: %w", err)
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return "", "", fmt.Errorf("managed deploy script missing: %w", err)
 		}
-		return path, nil
+		return path, string(b), nil
 	}
-	path, err := project.ResolveRepoScript(p.WorkDir, p.ScriptPath)
+	path, err = project.ResolveRepoScript(p.WorkDir, p.ScriptPath)
 	if err != nil {
-		return "", fmt.Errorf("deploy script %s: %w", p.ScriptPath, err)
+		return "", "", fmt.Errorf("deploy script %s: %w", p.ScriptPath, err)
 	}
-	return path, nil
+	return path, "", nil
 }
 
 // setupRuntimes picks the version of each runtime (Node.js, PHP) the project
@@ -348,12 +373,12 @@ func (s *Service) projectVars(ctx context.Context, p *store.Project) (env, maske
 // order is: project variables, then rule variables, then the DEPLOY_* values
 // set by degoploy.
 //
-// Scripts get the project's GIT_SSH_COMMAND (so `git pull` and private
-// submodules use the deploy key) but not the transport restriction degoploy
-// applies to its own git calls.
-func (s *Service) scriptEnv(d *store.Deployment, p *store.Project, rule *store.TriggerRule, vars []string) []string {
+// Scripts get gitEnv's GIT_SSH_COMMAND (so `git pull` and private submodules
+// use the deploy key) but not the transport restriction degoploy applies to
+// its own git calls.
+func (s *Service) scriptEnv(d *store.Deployment, p *store.Project, rule *store.TriggerRule, vars, gitEnv []string) []string {
 	var env []string
-	for _, kv := range s.projects.GitEnv(p).Environ() {
+	for _, kv := range gitEnv {
 		if !strings.HasPrefix(kv, "GIT_ALLOW_PROTOCOL=") {
 			env = append(env, kv)
 		}
@@ -392,7 +417,10 @@ func (s *Service) scriptEnv(d *store.Deployment, p *store.Project, rule *store.T
 // setProcessGroup runs cmd in its own process group; cancellation sends SIGTERM
 // to the whole group and Go force-kills the leader after killGrace.
 func setProcessGroup(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.Setpgid = true
 	cmd.Cancel = func() error {
 		return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
 	}
@@ -400,13 +428,14 @@ func setProcessGroup(cmd *exec.Cmd) {
 	cmd.WaitDelay = killGrace
 }
 
-func gitOutput(ctx context.Context, dir string, env []string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
-	cmd.Env = env
+func (s *Service) gitOutput(ctx context.Context, dir string, env []string, args ...string) (string, error) {
+	cmd, err := s.runner().Command(ctx, runas.Spec{Dir: dir, Env: env, Argv: append([]string{"git"}, args...)})
+	if err != nil {
+		return "", err
+	}
 	var out bytes.Buffer
 	cmd.Stdout = &out
-	err := cmd.Run()
+	err = cmd.Run()
 	return out.String(), err
 }
 

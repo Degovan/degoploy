@@ -26,6 +26,10 @@ type Manager struct {
 	store       *store.Store
 	dataDir     string
 	projectsDir string
+
+	// CheckAccess checks that deployments may clone into a work_dir, as the
+	// user they run as; nil checks as this process's user.
+	CheckAccess func(ctx context.Context, dir string) error
 }
 
 // NewManager manages projects with their data in dataDir. Projects without a
@@ -73,7 +77,7 @@ func (m *Manager) Create(ctx context.Context, in Input, userID int64) (*store.Pr
 		return nil, err
 	}
 	if in.AutoPull {
-		if err := checkWorkDirAccess(in.WorkDir); err != nil {
+		if err := m.checkAccess(ctx, in.WorkDir); err != nil {
 			return nil, err
 		}
 	}
@@ -157,7 +161,7 @@ func (m *Manager) Update(ctx context.Context, p *store.Project, in Input, userID
 	// Only a new folder, or pulling newly turned on: a project whose folder
 	// broke later can still be edited, and its deployments say what is wrong.
 	if in.AutoPull && (in.WorkDir != p.WorkDir || !p.AutoPull) {
-		if err := checkWorkDirAccess(in.WorkDir); err != nil {
+		if err := m.checkAccess(ctx, in.WorkDir); err != nil {
 			return err
 		}
 	}
@@ -216,6 +220,13 @@ func (m *Manager) TestConnection(ctx context.Context, p *store.Project) ([]gitop
 		return nil, err
 	}
 	return gitops.LsRemote(ctx, m.GitEnv(p), p.RepoURL)
+}
+
+func (m *Manager) checkAccess(ctx context.Context, dir string) error {
+	if m.CheckAccess == nil {
+		return CheckWorkDirAccess(dir)
+	}
+	return m.CheckAccess(ctx, dir)
 }
 
 // defaultWorkDir puts a project without a working directory in projects_dir.

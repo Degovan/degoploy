@@ -19,10 +19,19 @@ import (
 	"github.com/degovan/degoploy/internal/deploy"
 	"github.com/degovan/degoploy/internal/project"
 	"github.com/degovan/degoploy/internal/realtime"
+	"github.com/degovan/degoploy/internal/runas"
 	"github.com/degovan/degoploy/internal/secrets"
 	"github.com/degovan/degoploy/internal/store"
 	"github.com/degovan/degoploy/internal/toolchain"
 )
+
+// Deployments start this test binary as "degoploy run-step".
+func TestMain(m *testing.M) {
+	if runas.IsStep() {
+		os.Exit(runas.Main())
+	}
+	os.Exit(m.Run())
+}
 
 func newTestServer(t *testing.T) (*httptest.Server, *store.Store) {
 	return newTestServerWith(t, nil)

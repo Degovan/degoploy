@@ -16,11 +16,20 @@ import (
 
 	"github.com/degovan/degoploy/internal/project"
 	"github.com/degovan/degoploy/internal/realtime"
+	"github.com/degovan/degoploy/internal/runas"
 	"github.com/degovan/degoploy/internal/secrets"
 	"github.com/degovan/degoploy/internal/store"
 	"github.com/degovan/degoploy/internal/toolchain"
 	"github.com/degovan/degoploy/internal/toolchain/toolchaintest"
 )
+
+// Deployments start this test binary as "degoploy run-step".
+func TestMain(m *testing.M) {
+	if runas.IsStep() {
+		os.Exit(runas.Main())
+	}
+	os.Exit(m.Run())
+}
 
 // fixture is a git repository served over git's "dumb" HTTP protocol plus a
 // degoploy store, project manager and runner.
@@ -209,6 +218,17 @@ cat app.txt`, 0)
 	d2 := f.wait(f.enqueue(p, rule).ID, store.DeploySuccess, store.DeployFailed)
 	if d2.Status != store.DeploySuccess || d2.CommitSHA != sha2 {
 		t.Fatalf("second deploy: %s %s\n%s", d2.Status, d2.CommitSHA, readLog(t, d2))
+	}
+}
+
+// The script reaches the deploy key only through the agent, never the file.
+func TestScriptUsesKeyThroughAgent(t *testing.T) {
+	f := newFixture(t)
+	p := f.project("agent", `echo "ssh: $GIT_SSH_COMMAND"`, 0)
+	d := f.wait(f.enqueue(p, nil).ID, store.DeploySuccess, store.DeployFailed)
+	log := readLog(t, d)
+	if d.Status != store.DeploySuccess || !strings.Contains(log, "IdentityAgent=") || strings.Contains(log, f.manager.KeyPath(p)) {
+		t.Fatalf("status %s, log:\n%s", d.Status, log)
 	}
 }
 

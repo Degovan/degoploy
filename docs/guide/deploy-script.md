@@ -55,7 +55,7 @@ degoploy sets these on every run. Click a name in the app to copy it.
 | `DEPLOY_COMMIT` | Full commit SHA |
 | `DEPLOY_AUTHOR` | Commit author |
 | `DEPLOY_WORKDIR` | Working directory |
-| `GIT_SSH_COMMAND` | Makes `git` in the script use the project's deploy key |
+| `GIT_SSH_COMMAND` | Makes `git` in the script use the project's deploy key, lent through an SSH agent for the length of the deployment |
 
 Your project's [variables](variables-and-secrets.md) and the rule's **Extra environment** are available too.
 
@@ -75,4 +75,4 @@ sudo systemctl reload php-fpm
 - A deployment **fails** when the script exits with a code other than 0.
 - The script is stopped when it runs longer than the project's **Timeout**, set in [project settings](project-settings.md).
 - `node`, `npm`, `pnpm`, `php` and `composer` come from the Node.js and PHP versions the project uses, which degoploy installs; see [Runtimes](runtimes.md). The script does not need to load nvm or phpenv.
-- The script runs as the degoploy system user. Extra rights, such as `sudo` for restarting a service, are set up on the server; see [Installation](../INSTALL.md).
+- The script runs as its own system user, `degoploy-deploy` on a standard install, with its own `HOME` for npm and Composer caches. It cannot read degoploy's data (other projects' deploy keys, stored secrets) and gets only this project's variables. Extra rights, such as `sudo` for restarting a service, are given to that user on the server; see [Installation](../INSTALL.md).

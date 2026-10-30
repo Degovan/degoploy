@@ -10,11 +10,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// checkWorkDirAccess makes sure a deployment can clone into dir as the user
-// degoploy runs as: dir is a git checkout or an empty folder it may write to,
-// or a folder it may create. The error says how to fix it, so the project
+// CheckWorkDirAccess makes sure a deployment can clone into dir as the user
+// this process runs as: dir is a git checkout or an empty folder it may write
+// to, or a folder it may create. The error says how to fix it, so the project
 // form shows the problem before the first deployment runs into it.
-func checkWorkDirAccess(dir string) error {
+func CheckWorkDirAccess(dir string) error {
 	who := "degoploy"
 	if u, err := user.Current(); err == nil {
 		who = u.Username

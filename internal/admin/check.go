@@ -38,6 +38,8 @@ func Check(ctx context.Context, path string) Report {
 	set("listen", cfg.Listen)
 	set("data_dir", cfg.DataDir)
 	set("projects_dir", orNone(cfg.ProjectsDir))
+	set("runtimes_dir", cfg.RuntimesDir)
+	set("deploy_user", orNone(cfg.DeployUser))
 	set("base_url", orNone(cfg.BaseURL))
 	set("admin_socket", cfg.AdminSocket)
 	set("local_login", strconv.FormatBool(cfg.LocalLogin))
@@ -47,6 +49,9 @@ func Check(ctx context.Context, path string) Report {
 		warn("base_url is empty: webhook URLs are derived from the browser address and cookies are not marked Secure")
 	} else if !cfg.SecureCookies() {
 		warn("base_url is not https: session cookies are not marked Secure")
+	}
+	if cfg.DeployUser == "" {
+		warn("deploy_user is empty: deploy scripts run as degoploy's own user and can read its deploy keys, secret key and database")
 	}
 	if st, err := os.Stat(cfg.DataDir); err == nil && st.Mode().Perm()&0o077 != 0 {
 		warn("data_dir permissions are %v; deploy keys live there, use 0700", st.Mode().Perm())

@@ -18,6 +18,7 @@ import (
 	"github.com/degovan/degoploy/internal/deploy"
 	"github.com/degovan/degoploy/internal/project"
 	"github.com/degovan/degoploy/internal/realtime"
+	"github.com/degovan/degoploy/internal/runas"
 	"github.com/degovan/degoploy/internal/secrets"
 	"github.com/degovan/degoploy/internal/store"
 	"github.com/degovan/degoploy/internal/toolchain"
@@ -41,8 +42,20 @@ func New(cfg *config.Config, st *store.Store, box *secrets.Box, version string) 
 	sessions := auth.NewSessions(st, cfg.SessionTTL, cfg.SecureCookies())
 	hub := realtime.NewHub()
 	projects := project.NewManager(st, cfg.DataDir, cfg.ProjectsDir)
+	runner := &runas.Runner{User: cfg.DeployUser}
+	projects.CheckAccess = func(ctx context.Context, dir string) error {
+		msg, err := runner.CheckWorkDir(ctx, dir)
+		if err != nil {
+			return err
+		}
+		if msg != "" {
+			return &project.ValidationError{Field: "work_dir", Message: msg}
+		}
+		return nil
+	}
 	deploys := deploy.NewService(st, projects, hub, box, cfg.MaxParallel)
-	runtimes := toolchain.NewSet(cfg.DataDir, toolchain.Options{
+	deploys.Runner = runner
+	runtimes := toolchain.NewSet(cfg.RuntimesDir, toolchain.Options{
 		NodeMirror: cfg.NodeMirror, PHPMirror: cfg.PHPMirror, ComposerURL: cfg.ComposerURL,
 	})
 	deploys.Runtimes = runtimes

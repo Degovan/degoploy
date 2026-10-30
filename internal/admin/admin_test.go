@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -245,10 +246,14 @@ func TestCheck(t *testing.T) {
 	if r := Check(context.Background(), path); r.Error == "" {
 		t.Fatalf("max_parallel 0 accepted: %+v", r)
 	}
-	os.WriteFile(path, []byte("listen: \":9000\"\nbase_url: http://deploy.test\n"), 0o600)
+	os.WriteFile(path, []byte("listen: \":9000\"\nbase_url: http://deploy.test\ndeploy_user: degoploy-deploy\n"), 0o600)
 	r := Check(context.Background(), path)
 	if r.Error != "" || len(r.Warnings) != 1 {
 		t.Fatalf("report = %+v", r)
+	}
+	os.WriteFile(path, []byte("listen: \":9000\"\nbase_url: https://deploy.test\n"), 0o600)
+	if r := Check(context.Background(), path); len(r.Warnings) != 1 || !strings.Contains(r.Warnings[0], "deploy_user") {
+		t.Fatalf("missing deploy_user not reported: %+v", r)
 	}
 }
 

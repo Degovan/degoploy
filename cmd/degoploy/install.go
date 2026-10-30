@@ -246,6 +246,10 @@ func install(ctx context.Context, s installState, o *installOptions) error {
 	if err := ensureDir(confDir, 0o750, uid, gid); err != nil {
 		return err
 	}
+	groupsChanged, err := ensureDeployUser()
+	if err != nil {
+		return err
+	}
 
 	switch {
 	case joinGroup:
@@ -271,11 +275,17 @@ func install(ctx context.Context, s installState, o *installOptions) error {
 			return err
 		}
 		success("Wrote %s", defaultConfig)
-	} else if added, err := config.AddProjectsDir(defaultConfig, installProjects); err != nil {
-		return err
-	} else if added {
-		configChanged = true
-		success("Set projects_dir: %s in %s", installProjects, defaultConfig)
+	} else {
+		for _, set := range newSettings {
+			added, err := config.AddSetting(defaultConfig, set[0], set[1], set[2])
+			if err != nil {
+				return err
+			}
+			if added {
+				configChanged = true
+				success("Set %s: %s in %s", set[0], set[1], defaultConfig)
+			}
+		}
 	}
 	if err := errors.Join(os.Chown(defaultConfig, uid, gid), os.Chmod(defaultConfig, 0o640)); err != nil {
 		return err
@@ -303,8 +313,28 @@ func install(ctx context.Context, s installState, o *installOptions) error {
 	if err != nil {
 		return err
 	}
+	if err := moveRuntimes(cfg, uid, gid); err != nil {
+		return err
+	}
+	// Projects belong to the user that deploys them.
+	owner, ownerGID := uid, gid
+	if cfg.DeployUser != "" {
+		if owner, ownerGID, err = lookupIDs(cfg.DeployUser); err != nil {
+			return fmt.Errorf("deploy_user %s: %w", cfg.DeployUser, err)
+		}
+		if changed, err := installSudoers(sudoersFile, sudoRule(cfg.DeployUser)); err != nil {
+			return err
+		} else if changed {
+			success("Allowed %s to run deployments as %s (%s)", serviceUser, cfg.DeployUser, sudoersFile)
+		}
+		if err := copySudoRules(cfg.DeployUser); err != nil {
+			return err
+		}
+	} else {
+		warning("deploy_user is not set in %s: deploy scripts run as %s and can read its data", defaultConfig, serviceUser)
+	}
 	if cfg.ProjectsDir != "" {
-		if err := ensureProjectsDir(cfg.ProjectsDir, uid, gid); err != nil {
+		if err := ensureProjectsDir(cfg.ProjectsDir, owner, ownerGID, uid); err != nil {
 			return err
 		}
 	}
@@ -347,7 +377,7 @@ func install(ctx context.Context, s installState, o *installOptions) error {
 		}
 	}
 	switch {
-	case active && (binChanged || unitChanged || configChanged || c == nil):
+	case active && (binChanged || unitChanged || configChanged || groupsChanged || c == nil):
 		if c != nil {
 			c.Close()
 		}
@@ -386,6 +416,9 @@ func install(ctx context.Context, s installState, o *installOptions) error {
 	if err != nil {
 		return err
 	}
+	if owner != uid {
+		migrateWorkDirs(ctx, st.WorkDirs, cfg.ProjectsDir, uid, cfg.DeployUser, owner)
+	}
 	if err := firstAdmin(ctx, c, st, o.admin, freshData); err != nil {
 		return err
 	}
@@ -402,6 +435,7 @@ func install(ctx context.Context, s installState, o *installOptions) error {
 		{"config", defaultConfig + muted.Render("   secrets: "+envFile)},
 		{"data", installData},
 		{"projects", cmp.Or(cfg.ProjectsDir, muted.Render("(not set: each project names its folder)"))},
+		{"deploys as", cmp.Or(cfg.DeployUser, serviceUser+muted.Render(" (deploy_user is not set)"))},
 		{"logs", "journalctl -u degoploy -f"},
 		{"manage", "degoploy " + muted.Render("  as root or a member of the "+serviceUser+" group, no sudo needed")},
 	})
@@ -479,6 +513,8 @@ func writeConfig(listen, baseURL string) error {
 		"BaseURL":     baseURL,
 		"DataDir":     installData,
 		"ProjectsDir": installProjects,
+		"RuntimesDir": installRuntimes,
+		"DeployUser":  deployUser,
 		"EnvFile":     envFile,
 		"RedirectURL": cmp.Or(baseURL, "https://deploy.example.com") + "/auth/oidc/callback",
 	})
@@ -558,13 +594,15 @@ func ensureDir(path string, mode os.FileMode, uid, gid int) error {
 var webGroups = []string{"www-data", "nginx", "apache", "http"}
 
 // ensureProjectsDir makes the folder projects are cloned into: owned by the
-// service user and setgid, so every project inherits its group. A new folder
-// gets the web server's group, so the server can read the apps and write to
-// their storage folders. A folder someone else owns is left as it is.
-func ensureProjectsDir(dir string, uid, gid int) error {
+// user that deploys them and setgid, so every project inherits its group. A
+// new folder gets the web server's group, so the server can read the apps and
+// write to their storage folders. What prev (the service user, before
+// deployments had their own user) owns there moves to owner. A folder someone
+// else owns is left as it is.
+func ensureProjectsDir(dir string, owner, gid, prev int) error {
 	st, err := os.Stat(dir)
 	if errors.Is(err, fs.ErrNotExist) {
-		group := serviceUser
+		group := ""
 		for _, name := range webGroups {
 			if g, err := user.LookupGroup(name); err == nil {
 				gid, _ = strconv.Atoi(g.Gid)
@@ -578,17 +616,28 @@ func ensureProjectsDir(dir string, uid, gid int) error {
 		if err := os.Mkdir(dir, 0o775); err != nil {
 			return err
 		}
-		if err := errors.Join(os.Chown(dir, uid, gid), os.Chmod(dir, 0o775|fs.ModeSetgid)); err != nil {
+		if err := errors.Join(os.Chown(dir, owner, gid), os.Chmod(dir, 0o775|fs.ModeSetgid)); err != nil {
 			return err
 		}
-		success("Created %s for projects (group %s)", dir, group)
+		if group != "" {
+			success("Created %s for projects (group %s)", dir, group)
+		} else {
+			success("Created %s for projects", dir)
+		}
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	if sys, ok := st.Sys().(*syscall.Stat_t); !ok || int(sys.Uid) != uid {
-		warning("%s is not owned by %s; it needs write access there to clone projects", dir, serviceUser)
+	sys, ok := st.Sys().(*syscall.Stat_t)
+	if ok && int(sys.Uid) == prev && prev != owner {
+		n, err := chownTree(dir, prev, owner)
+		if err != nil {
+			return err
+		}
+		success("Gave %s and %d %s in it to the deploy user", dir, n-1, pluralWord(n-1, "file"))
+	} else if !ok || int(sys.Uid) != owner {
+		warning("%s belongs to another user; deployments need write access there", dir)
 		return nil
 	}
 	return os.Chmod(dir, st.Mode().Perm()|0o070|fs.ModeSetgid)
@@ -694,6 +743,7 @@ type tool struct {
 
 var neededTools = []tool{
 	{cmd: "git"},
+	{cmd: "sudo"},
 	{cmd: "ssh", pkgs: map[string]string{
 		"apt-get": "openssh-client", "apk": "openssh-client",
 		"dnf": "openssh-clients", "yum": "openssh-clients", "zypper": "openssh-clients",

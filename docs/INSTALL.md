@@ -41,17 +41,24 @@ Tanpa internet di server: unduh `degoploy-linux-amd64.tar.gz` dari halaman
 
 `degoploy setup` melakukan semuanya:
 
-1. memasang `git` dan `ssh` bila belum ada (apt-get, dnf, yum, zypper, pacman, atau apk),
-2. membuat user sistem `degoploy` (tanpa login shell),
+1. memasang `git`, `ssh` dan `sudo` bila belum ada (apt-get, dnf, yum, zypper, pacman, atau apk),
+2. membuat user sistem `degoploy` untuk service, dan `degoploy-deploy` untuk git dan script deploy
+   (keduanya tanpa login shell; lihat [bagian 6](#6-hak-akses-script-deploy)),
 3. memasukkan user yang menjalankan `sudo` ke grup `degoploy` (`--operator NAMA` untuk user lain,
    `--no-operator` untuk melewati),
 4. memasang binary ke `/usr/local/bin/degoploy`,
 5. menulis `/etc/degoploy/degoploy.yaml` dan `/etc/degoploy/degoploy.env` **jika belum ada**, lalu
-   memeriksanya (pada instalasi lama ia menambahkan `projects_dir: /srv/degoploy` bila belum ada),
-6. membuat folder project `/srv/degoploy` milik `degoploy`, setgid, dengan grup web server
-   (`www-data`, `nginx`, `apache` atau `http`, mana yang ada),
-7. memasang `degoploy.service`, lalu `enable` + `start`, dan menunggu sampai service menjawab,
-8. membuat admin pertama bila belum ada.
+   memeriksanya (pada instalasi lama ia menambahkan `projects_dir`, `runtimes_dir` dan `deploy_user`
+   bila belum ada),
+6. menulis aturan sudo `/etc/sudoers.d/degoploy` (dicek dengan `visudo`) yang hanya mengizinkan
+   `degoploy` menjalankan `degoploy run-step` sebagai `degoploy-deploy`,
+7. membuat folder project `/srv/degoploy` milik `degoploy-deploy`, setgid, dengan grup web server
+   (`www-data`, `nginx`, `apache` atau `http`, mana yang ada), dan memindahkan runtime ke
+   `/var/lib/degoploy-runtimes`,
+8. memasang `degoploy.service`, lalu `enable` + `start`, dan menunggu sampai service menjawab,
+9. pada instalasi lama: memindahkan file milik `degoploy` di setiap folder kerja project ke
+   `degoploy-deploy`, lalu memeriksa apakah ia bisa deploy di sana,
+10. membuat admin pertama bila belum ada.
 
 Opsi lain: `--listen 127.0.0.1:9000`, `--no-start`. Setiap langkah memeriksa dulu, jadi menjalankan
 `sudo degoploy setup` lagi juga memperbaiki izin file dan unit yang berubah.
@@ -73,8 +80,10 @@ make dist            # release/degoploy-linux-{amd64,arm64}.tar.gz + SHA256SUMS
 | `/etc/degoploy/degoploy.yaml` | konfigurasi (halaman *SSO* dan *Email* menyimpan ke sini) | `0640` degoploy:degoploy |
 | `/etc/degoploy/degoploy.env` | secret (`DEGOPLOY_OIDC_SECRET=…`), dibaca systemd | `0600` root |
 | `/var/lib/degoploy/` | database, deploy key, script, log | `0700` degoploy |
-| `/srv/degoploy/<slug>/` | folder kerja project yang tidak memilih folder sendiri (`projects_dir`) | `2775` degoploy:www-data |
-| `/var/lib/degoploy/node/`, `php/` | versi Node.js dan PHP untuk deploy script (diunduh otomatis) | `0755` degoploy |
+| `/srv/degoploy/<slug>/` | folder kerja project yang tidak memilih folder sendiri (`projects_dir`) | `2775` degoploy-deploy:www-data |
+| `/var/lib/degoploy-runtimes/node/`, `php/` | versi Node.js dan PHP untuk deploy script (`runtimes_dir`, diunduh otomatis) | `0755` degoploy |
+| `/var/lib/degoploy-deploy/` | HOME user `degoploy-deploy` (cache npm, Composer) | `0750` degoploy-deploy |
+| `/etc/sudoers.d/degoploy` | izin `degoploy` menjalankan deployment sebagai `degoploy-deploy`; ditulis ulang setup | `0440` root |
 | `/run/degoploy/admin.sock` | socket untuk CLI `degoploy` | `0660` degoploy:degoploy |
 | `/etc/systemd/system/degoploy.service` | unit systemd | `0644` |
 
@@ -154,13 +163,16 @@ Jika indikator di pojok kanan atas UI tetap "Reconnecting…", WebSocket belum d
    file hasil deploy bisa ditulis grup itu (umask service `0002`), jadi `storage/` atau `cache/` aplikasi
    tidak perlu di-`chown` lagi. Arahkan web server ke `/srv/degoploy/<slug>` (misalnya `…/public`).
 
-   Folder lain, misalnya `/var/www/my-app` atau di home user, tetap boleh. degoploy meng-clone sebagai
-   user `degoploy`, jadi user itu harus bisa menulis di sana. Saat project disimpan, degoploy memeriksanya
-   dan menampilkan perintah perbaikan bila belum bisa, misalnya:
+   Folder lain, misalnya `/var/www/my-app` atau di home user, tetap boleh. git dan script berjalan
+   sebagai `degoploy-deploy`, jadi user itu harus bisa menulis di sana, dan `degoploy` harus bisa
+   membacanya (ia membaca `.nvmrc`, `composer.json` dan script dari repo). Saat project disimpan, degoploy
+   memeriksa keduanya dan menampilkan perintah perbaikan bila belum bisa, misalnya:
 
    ```bash
-   sudo install -d -o degoploy -g www-data -m 2775 /var/www/my-app
-   # atau untuk folder yang sudah ada: sudo setfacl -R -m u:degoploy:rwX -m d:u:degoploy:rwX /var/www/my-app
+   sudo install -d -o degoploy-deploy -g www-data -m 2775 /var/www/my-app
+   # atau untuk folder yang sudah ada:
+   sudo setfacl -R -m u:degoploy-deploy:rwX -m d:u:degoploy-deploy:rwX /var/www/my-app
+   sudo setfacl -R -m u:degoploy:rX -m d:u:degoploy:rX /var/www/my-app
    ```
 
    Folder harus kosong atau sudah berupa repo git; folder berisi file lain ditolak agar tidak tertimpa.
@@ -192,27 +204,46 @@ ssh-keyscan github.com gitea.example.com | sudo -u degoploy tee -a /var/lib/dego
 
 ## 6. Hak akses script deploy
 
-Script berjalan sebagai user `degoploy`. Untuk perintah yang butuh root, beri izin `sudo` spesifik
-(jangan `ALL`):
+git dan script deploy berjalan sebagai user `degoploy-deploy` (`deploy_user` di config), bukan sebagai
+`degoploy`. Akibatnya script, termasuk script dari repo dan dependency seperti `postinstall` npm, tidak
+bisa membaca `/var/lib/degoploy` (deploy key semua project, `secret.key`, database) maupun
+`/etc/degoploy`, dan tidak bisa memakai admin socket. Caranya:
+
+- service menjalankan `sudo -u degoploy-deploy degoploy run-step` dengan aturan di
+  `/etc/sudoers.d/degoploy`; variabel dan secret dikirim lewat stdin, bukan argumen;
+- deploy key project dipinjamkan lewat ssh-agent selama deployment (`GIT_SSH_COMMAND` menunjuk ke
+  agent itu). Agent hanya menandatangani dan tidak bisa menyerahkan key-nya;
+- script managed diberikan ke bash dari memori, jadi tidak perlu file yang bisa dibaca `degoploy-deploy`.
+
+Untuk perintah yang butuh root, beri izin `sudo` spesifik untuk `degoploy-deploy` (jangan `ALL`):
 
 ```bash
-sudo visudo -f /etc/sudoers.d/degoploy
+sudo visudo -f /etc/sudoers.d/my-app
 ```
 
 ```sudoers
-degoploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart my-app, /usr/bin/systemctl reload nginx
+degoploy-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart my-app, /usr/bin/systemctl reload nginx
 ```
+
+Jangan menulis di `/etc/sudoers.d/degoploy`: file itu ditulis ulang setiap `degoploy setup`.
+
+**Instalasi lama.** Dulu script berjalan sebagai `degoploy`. Saat `degoploy update` (atau `degoploy
+setup`) pertama kali memindahkan script ke `degoploy-deploy`, aturan sudo untuk `degoploy` yang ia temukan
+disalin sekali ke `/etc/sudoers.d/degoploy-deploy`, dan file milik `degoploy` di folder kerja project
+dipindahkan ke `degoploy-deploy`. Setelah itu aturan lama untuk `degoploy` tidak dipakai script lagi dan
+boleh dihapus. Untuk sementara kembali ke perilaku lama, kosongkan `deploy_user: ""` di config (tidak
+disarankan).
 
 Catatan:
 - Jalankan aplikasi sebagai service systemd dan restart lewat `systemctl` dari script. Proses yang
   dijalankan di background langsung dari script (`nohup …&`) ikut berhenti saat degoploy di-restart.
-- Memasukkan `degoploy` ke grup `docker` setara dengan akses root.
-- Unit sengaja tidak memakai `NoNewPrivileges`/`ProtectSystem` agar `sudo` dan penulisan ke `/var/www`
-  tetap bisa; aktifkan lewat drop-in (`systemctl edit degoploy`) jika script Anda tidak membutuhkannya.
+- Memasukkan `degoploy-deploy` ke grup `docker` setara dengan akses root.
+- Unit sengaja tidak memakai `NoNewPrivileges` (deployment dimulai lewat `sudo`) maupun `ProtectSystem`
+  (agar penulisan ke `/var/www` tetap bisa).
 
 ### Node.js dan PHP untuk deploy script
 
-Script berjalan sebagai user `degoploy`, jadi nvm atau phpenv milik user lain tidak terbaca. degoploy
+Script berjalan sebagai user `degoploy-deploy`, jadi nvm atau phpenv milik user lain tidak terbaca. degoploy
 mengelola runtime-nya sendiri, dan setiap project hanya memakai yang dibutuhkannya:
 
 - **Node.js**: versi dari `.nvmrc`, `.node-version` atau `package.json`, diunduh dari nodejs.org (dicek
@@ -291,7 +322,10 @@ degoploy config check
 | Delivery `rejected: signature does not match` | Secret di webhook tidak sama dengan di degoploy (atau di-regenerate) |
 | Delivery `404` | Payload URL salah atau project sudah dihapus |
 | Deploy gagal `refusing to clone` | `work_dir` berisi file tetapi bukan repo git |
-| Deploy gagal `mkdir … permission denied` | User `degoploy` tidak bisa menulis ke `work_dir`; simpan ulang project untuk melihat perintah perbaikannya |
+| Deploy gagal `mkdir … permission denied` | User `degoploy-deploy` tidak bisa menulis ke `work_dir`; simpan ulang project untuk melihat perintah perbaikannya |
+| Deploy gagal `sudo: a password is required` | Aturan `/etc/sudoers.d/degoploy` hilang atau `deploy_user` diganti; jalankan `sudo degoploy setup` |
+| Script gagal `sudo: … password is required` untuk `systemctl` | Aturan sudo masih untuk `degoploy`; tulis untuk `degoploy-deploy` (bagian 6) |
+| Deploy gagal `… is degoploy a member?` | `degoploy` belum masuk grup `degoploy-deploy`; jalankan `sudo degoploy setup` |
 | Live log tidak muncul | Proxy tidak meneruskan WebSocket `/ws` |
 | Login SSO: "not in a group" | Nama group tidak ada di `role_mapping`; lihat klaim di halaman *SSO* |
 | CLI: `may not manage degoploy` | User Anda belum di grup `degoploy`: `sudo usermod -aG degoploy $USER`, lalu login ulang |

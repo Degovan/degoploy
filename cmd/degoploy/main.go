@@ -15,6 +15,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/degovan/degoploy/internal/config"
+	"github.com/degovan/degoploy/internal/runas"
 	"github.com/degovan/degoploy/internal/secrets"
 	"github.com/degovan/degoploy/internal/server"
 )
@@ -73,6 +74,10 @@ func main() {
 
 	var err error
 	switch cmd {
+	case runas.Subcommand:
+		// Started by degoploy itself, as the deploy user, for one git command
+		// or deploy script.
+		os.Exit(runas.Main())
 	case "serve":
 		err = runServe(args)
 	case "setup":
@@ -153,6 +158,13 @@ func runServe(args []string) error {
 		if cfg.SMTP.Password, err = box.Open(sealed, config.SMTPPasswordScope); err != nil {
 			return fmt.Errorf("smtp password: %w", err)
 		}
+	}
+
+	if err := (&runas.Runner{User: cfg.DeployUser}).Validate(); err != nil {
+		return err
+	}
+	if cfg.DeployUser == "" {
+		slog.Warn("deploy_user is not set: deploy scripts run as degoploy's own user and can read its data; run: sudo degoploy setup")
 	}
 
 	slog.Info("starting degoploy", "version", version)

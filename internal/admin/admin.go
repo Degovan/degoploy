@@ -33,6 +33,10 @@ type Status struct {
 	Users     int       `json:"users"`
 	Admins    int       `json:"admins"`
 	Projects  int       `json:"projects"`
+	// DeployUser runs git and deploy scripts; empty means the service's user.
+	DeployUser string `json:"deploy_user"`
+	// WorkDirs are the projects' working directories, for setup.
+	WorkDirs []string `json:"work_dirs"`
 	// You is the Linux user the service sees on the other end of the socket.
 	You string `json:"you"`
 	// Local is true when the CLI opened the data directly because the service
@@ -85,7 +89,7 @@ type handler struct{ Deps }
 // NewHandler serves the admin API that Client calls.
 func NewHandler(d Deps) http.Handler {
 	if d.Runtimes == nil {
-		d.Runtimes = toolchain.NewSet(d.Config.DataDir, toolchain.Options{
+		d.Runtimes = toolchain.NewSet(d.Config.RuntimesDir, toolchain.Options{
 			NodeMirror: d.Config.NodeMirror, PHPMirror: d.Config.PHPMirror, ComposerURL: d.Config.ComposerURL,
 		})
 	}
@@ -120,18 +124,20 @@ func (h *handler) status(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.JSON(w, http.StatusOK, Status{
-		Version:   h.Version,
-		StartedAt: h.Started,
-		PID:       os.Getpid(),
-		Listen:    h.Config.Listen,
-		BaseURL:   h.Config.BaseURL,
-		DataDir:   h.Config.DataDir,
-		Config:    h.Config.Path,
-		Users:     len(users),
-		Admins:    admins,
-		Projects:  len(projects),
-		You:       PeerFrom(ctx).Name,
-		Local:     h.Local,
+		Version:    h.Version,
+		StartedAt:  h.Started,
+		PID:        os.Getpid(),
+		Listen:     h.Config.Listen,
+		BaseURL:    h.Config.BaseURL,
+		DataDir:    h.Config.DataDir,
+		Config:     h.Config.Path,
+		Users:      len(users),
+		Admins:     admins,
+		Projects:   len(projects),
+		DeployUser: h.Config.DeployUser,
+		WorkDirs:   workDirs(projects),
+		You:        PeerFrom(ctx).Name,
+		Local:      h.Local,
 	})
 }
 
@@ -308,4 +314,12 @@ func toUser(u *store.User) User {
 		Provider: u.AuthProvider, Role: string(u.Role), Disabled: u.Disabled,
 		MustChangePassword: u.MustChangePassword, LastLoginAt: u.LastLoginAt, CreatedAt: u.CreatedAt,
 	}
+}
+
+func workDirs(projects []*store.Project) []string {
+	dirs := make([]string, len(projects))
+	for i, p := range projects {
+		dirs[i] = p.WorkDir
+	}
+	return dirs
 }

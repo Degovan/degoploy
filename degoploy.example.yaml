@@ -14,6 +14,13 @@ data_dir: /var/lib/degoploy
 # degoploy setup creates it setgid, in the web server's group. Leave it out to require
 # a working directory for every project.
 projects_dir: /srv/degoploy
+# Node.js and PHP versions for deploy scripts. Leave it out to keep them in data_dir, which
+# deploy_user cannot read.
+runtimes_dir: /var/lib/degoploy-runtimes
+# git and deploy scripts run as this user through sudo (degoploy setup writes the rule), so
+# they cannot read data_dir: deploy keys, the secret key and the database. Leave it out to run
+# them as degoploy's own user, which is not recommended.
+deploy_user: degoploy-deploy
 # Public URL; https:// enables Secure cookies.
 base_url: https://deploy.example.com
 # Maximum deployments running at the same time across all projects.

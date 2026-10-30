@@ -287,7 +287,7 @@
 				<p class={hint}>
 					{#if projectsDir}
 						Leave empty to use <code>{projectsDir}/{v.slug || '<slug>'}</code>, which degoploy
-						prepares itself. Another folder needs write access for degoploy.
+						prepares itself. Another folder needs write access for the user deployments run as.
 					{:else}
 						Absolute path on this server. The repository is cloned here on the first deploy.
 					{/if}

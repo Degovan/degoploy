@@ -109,6 +109,6 @@ degoploy node cancel           # stop a download; Ctrl+C during install does too
 
 ## Good to know
 
-- Downloaded versions live in the server's data directory under `node/` and `php/`. Backups leave them out; they are downloaded again when needed.
+- Downloaded versions live under `node/` and `php/` in `runtimes_dir` (`/var/lib/degoploy-runtimes` on a standard install), where the user deploy scripts run as can read them. Backups leave them out; they are downloaded again when needed.
 - A Node.js version takes roughly 150–200 MB on disk, a PHP version about 30 MB.
 - The server needs to reach nodejs.org, static-php.dev and getcomposer.org. Servers without internet access can use mirrors with the same layout; see `node_mirror`, `php_mirror` and `composer_url` in [Installation](../INSTALL.md).

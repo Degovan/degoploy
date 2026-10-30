@@ -7,6 +7,11 @@ data_dir: {{.DataDir}}
 # Projects without a working directory of their own are cloned into
 # <projects_dir>/<slug>. Setup makes it setgid, in the web server's group.
 projects_dir: {{.ProjectsDir}}
+# Node.js and PHP versions for deploy scripts, readable by deploy_user.
+runtimes_dir: {{.RuntimesDir}}
+# git and deploy scripts run as this user (through sudo), so they cannot read
+# degoploy's data: deploy keys, the secret key and the database.
+deploy_user: {{.DeployUser}}
 # Public URL behind your reverse proxy; https:// enables Secure cookies.
 base_url: {{quote .BaseURL}}
 # Maximum deployments running at the same time across all projects.

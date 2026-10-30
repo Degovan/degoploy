@@ -8,7 +8,8 @@ script, and watch every deployment and its log live in the browser.
 - **Trigger rules** per project: branches or tags (globs), changed paths, and skip keywords.
 - **Deploy keys**: each project gets its own SSH key for private repositories.
 - **Deploy scripts** kept in degoploy with revisions, or read from the repository, plus variables and
-  encrypted secrets.
+  encrypted secrets. They run as a user of their own, which cannot read deploy keys or secrets of
+  other projects.
 - **Runtimes**: Node.js and PHP versions per project, read from `.nvmrc`, `.php-version` or
   `composer.json` like nvm and phpenv do. The server's own versions are used where they fit; others are
   downloaded on first use. pnpm and yarn come through corepack, and Composer is included.

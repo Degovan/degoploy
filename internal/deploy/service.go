@@ -18,6 +18,7 @@ import (
 
 	"github.com/degovan/degoploy/internal/project"
 	"github.com/degovan/degoploy/internal/realtime"
+	"github.com/degovan/degoploy/internal/runas"
 	"github.com/degovan/degoploy/internal/secrets"
 	"github.com/degovan/degoploy/internal/store"
 	"github.com/degovan/degoploy/internal/toolchain"
@@ -55,6 +56,10 @@ type Service struct {
 	// nil leaves PATH alone.
 	Runtimes *toolchain.Set
 
+	// Runner runs git and deploy scripts as the deploy user; nil runs them
+	// as degoploy's own user.
+	Runner *runas.Runner
+
 	// OnUpdate is called after every deployment state change (for realtime events).
 	OnUpdate func(*store.DeploymentView)
 
@@ -67,6 +72,13 @@ type Service struct {
 	active  map[int64]bool                    // project id → loop running
 	pending map[int64]int64                   // project id → waiting deployment id
 	jobs    map[int64]context.CancelCauseFunc // deployment id → cancel
+}
+
+func (s *Service) runner() *runas.Runner {
+	if s.Runner == nil {
+		return &runas.Runner{}
+	}
+	return s.Runner
 }
 
 func NewService(st *store.Store, projects *project.Manager, hub *realtime.Hub, box *secrets.Box, maxParallel int) *Service {

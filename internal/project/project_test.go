@@ -220,7 +220,7 @@ func TestWorkDirAccess(t *testing.T) {
 		{filepath.Join(file, "app"), "is a file"},
 	}
 	for _, c := range cases {
-		err := checkWorkDirAccess(c.dir)
+		err := CheckWorkDirAccess(c.dir)
 		var ve *ValidationError
 		switch {
 		case c.want == "" && err != nil:

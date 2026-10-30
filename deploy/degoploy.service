@@ -40,7 +40,7 @@ RestrictRealtime=true
 LockPersonality=true
 
 # Stricter options. Enable only if your deploy scripts allow it:
-# NoNewPrivileges=true    breaks `sudo` in deploy scripts
+# NoNewPrivileges=true    breaks deployments: they start as deploy_user through sudo
 # ProtectSystem=full      makes /usr and /etc read-only for scripts
 # ProtectHome=true        hides /home (projects deployed there would fail)
 

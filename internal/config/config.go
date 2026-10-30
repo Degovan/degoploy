@@ -21,7 +21,14 @@ type Config struct {
 	DataDir string `yaml:"data_dir"`
 	// ProjectsDir is where a project without a working directory of its own is
 	// cloned, in <projects_dir>/<slug>. Empty means every project needs one.
-	ProjectsDir    string        `yaml:"projects_dir"`
+	ProjectsDir string `yaml:"projects_dir"`
+	// RuntimesDir holds the Node.js and PHP versions degoploy downloads. Empty
+	// means data_dir; deploy_user must be able to read it.
+	RuntimesDir string `yaml:"runtimes_dir"`
+	// DeployUser is the Linux user git and deploy scripts run as, through
+	// sudo (see degoploy setup). Empty means degoploy's own user, so scripts
+	// can read its data: deploy keys, the secret key and the database.
+	DeployUser     string        `yaml:"deploy_user"`
 	BaseURL        string        `yaml:"base_url"`
 	MaxParallel    int           `yaml:"max_parallel"`
 	TrustedProxies []string      `yaml:"trusted_proxies"`
@@ -162,6 +169,8 @@ func applyEnv(cfg *Config) error {
 		"DEGOPLOY_LISTEN":             &cfg.Listen,
 		"DEGOPLOY_DATA_DIR":           &cfg.DataDir,
 		"DEGOPLOY_PROJECTS_DIR":       &cfg.ProjectsDir,
+		"DEGOPLOY_RUNTIMES_DIR":       &cfg.RuntimesDir,
+		"DEGOPLOY_DEPLOY_USER":        &cfg.DeployUser,
 		"DEGOPLOY_BASE_URL":           &cfg.BaseURL,
 		"DEGOPLOY_SECRET_KEY":         &cfg.SecretKey,
 		"DEGOPLOY_ADMIN_SOCKET":       &cfg.AdminSocket,
@@ -241,6 +250,14 @@ func (c *Config) finalize() error {
 			c.ProjectsDir = abs
 		}
 	}
+	if c.RuntimesDir == "" {
+		c.RuntimesDir = c.DataDir
+	} else if abs, err := filepath.Abs(c.RuntimesDir); err == nil {
+		c.RuntimesDir = abs
+		if abs != c.DataDir && overlaps(abs, c.DataDir) {
+			errs = append(errs, fmt.Errorf("runtimes_dir must not overlap data_dir (%s) unless it is data_dir", c.DataDir))
+		}
+	}
 	if c.MaxParallel < 1 {
 		errs = append(errs, errors.New("max_parallel must be >= 1"))
 	}
@@ -316,9 +333,14 @@ func (c *Config) DBPath() string { return filepath.Join(c.DataDir, "degoploy.db"
 // SecretKeyPath is the key file used when SecretKey is not set.
 func (c *Config) SecretKeyPath() string { return filepath.Join(c.DataDir, "secret.key") }
 
-// AddProjectsDir sets projects_dir in the YAML file at path, below data_dir,
-// when the file does not have the key yet. It reports whether it wrote it.
-func AddProjectsDir(path, dir string) (bool, error) {
+// settingsOrder is where AddSetting puts top-level keys: after the last of
+// these that the file has.
+var settingsOrder = []string{"data_dir", "projects_dir", "runtimes_dir", "deploy_user"}
+
+// AddSetting sets the top-level key in the YAML file at path to value, with
+// comment above it, when the file does not have the key yet. It reports
+// whether it wrote it. degoploy setup uses it to bring older files up to date.
+func AddSetting(path, key, value, comment string) (bool, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return false, fmt.Errorf("read config: %w", err)
@@ -327,19 +349,19 @@ func AddProjectsDir(path, dir string) (bool, error) {
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		return false, fmt.Errorf("parse config %s: %w", path, err)
 	}
-	if len(doc.Content) > 0 && mapValue(doc.Content[0], "projects_dir") != nil {
+	if len(doc.Content) > 0 && mapValue(doc.Content[0], key) != nil {
 		return false, nil
 	}
 	err = editFile(path, nil, func(root *yaml.Node, _ setter) {
-		key := strNode("projects_dir")
-		key.HeadComment = "Projects without a working directory of their own are cloned into <projects_dir>/<slug>."
+		k := strNode(key)
+		k.HeadComment = comment
 		at := len(root.Content)
 		for i := 0; i+1 < len(root.Content); i += 2 {
-			if root.Content[i].Value == "data_dir" {
+			if slices.Contains(settingsOrder, root.Content[i].Value) {
 				at = i + 2
 			}
 		}
-		root.Content = slices.Insert(root.Content, at, key, strNode(dir))
+		root.Content = slices.Insert(root.Content, at, k, strNode(value))
 	})
 	return err == nil, err
 }

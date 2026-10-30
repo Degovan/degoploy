@@ -62,7 +62,7 @@ type Deps struct {
 
 func New(d Deps) *API {
 	if d.Runtimes == nil {
-		d.Runtimes = toolchain.NewSet(d.Config.DataDir, toolchain.Options{
+		d.Runtimes = toolchain.NewSet(d.Config.RuntimesDir, toolchain.Options{
 			NodeMirror: d.Config.NodeMirror, PHPMirror: d.Config.PHPMirror, ComposerURL: d.Config.ComposerURL,
 		})
 	}

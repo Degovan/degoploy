@@ -16,6 +16,10 @@ import (
 type Env struct {
 	KeyPath    string // private key; empty for public https remotes
 	KnownHosts string // shared known_hosts file
+	// AgentSocket and PublicKey take the key from an SSH agent instead of
+	// KeyPath (see Agent).
+	AgentSocket string
+	PublicKey   string
 }
 
 // Environ returns os.Environ() plus the git/ssh settings for e.
@@ -32,7 +36,11 @@ func (e Env) Environ() []string {
 	if e.KnownHosts != "" {
 		sshCmd = append(sshCmd, "-o", "UserKnownHostsFile="+shellQuote(e.KnownHosts))
 	}
-	if e.KeyPath != "" {
+	switch {
+	case e.AgentSocket != "":
+		// -i with the public key picks that key from the agent.
+		sshCmd = append(sshCmd, "-o", "IdentitiesOnly=yes", "-o", "IdentityAgent="+shellQuote(e.AgentSocket), "-i", shellQuote(e.PublicKey))
+	case e.KeyPath != "":
 		sshCmd = append(sshCmd, "-o", "IdentitiesOnly=yes", "-i", shellQuote(e.KeyPath))
 	}
 	return append(BaseEnviron(),
