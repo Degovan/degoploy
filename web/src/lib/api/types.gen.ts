@@ -54,6 +54,11 @@ export interface Me {
 	user: User;
 	csrf_token: string;
 	permissions: Action[];
+	/**
+	 * ProjectsDir holds projects created without a work_dir, in <projects_dir>/<slug>.
+	 * Empty means work_dir is required.
+	 */
+	projects_dir: string;
 }
 export interface Health {
 	status: string;

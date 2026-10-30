@@ -83,6 +83,7 @@ func (a *API) login(w http.ResponseWriter, r *http.Request) {
 		User:        toUser(u),
 		CSRFToken:   sess.CSRFToken,
 		Permissions: a.permissions(r, u),
+		ProjectsDir: a.projects.ProjectsDir(),
 	})
 }
 
@@ -102,6 +103,7 @@ func (a *API) me(w http.ResponseWriter, r *http.Request) {
 		User:        toUser(id.User),
 		CSRFToken:   id.Session.CSRFToken,
 		Permissions: a.permissions(r, id.User),
+		ProjectsDir: a.projects.ProjectsDir(),
 	})
 }
 

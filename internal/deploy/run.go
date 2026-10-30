@@ -171,10 +171,12 @@ func (s *Service) pull(ctx context.Context, d *store.Deployment, p *store.Projec
 		if entries, err := os.ReadDir(p.WorkDir); err == nil && len(entries) > 0 {
 			return fmt.Errorf("%s exists, is not empty and is not a git repository; refusing to clone into it", p.WorkDir)
 		}
-		if err := os.MkdirAll(p.WorkDir, 0o755); err != nil {
+		// Group-writable under the unit's umask (0002), so the web server's
+		// group can write to the app's storage folders.
+		if err := os.MkdirAll(p.WorkDir, 0o775); err != nil {
 			return err
 		}
-		if err := git("init", "--quiet"); err != nil {
+		if err := git("init", "--quiet", "--shared=group"); err != nil {
 			return err
 		}
 		if err := git("remote", "add", "origin", p.RepoURL); err != nil {

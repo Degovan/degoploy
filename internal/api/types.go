@@ -37,6 +37,9 @@ type Me struct {
 	User        User     `json:"user"`
 	CSRFToken   string   `json:"csrf_token"`
 	Permissions []string `json:"permissions" tstype:"Action[]"`
+	// ProjectsDir holds projects created without a work_dir, in <projects_dir>/<slug>.
+	// Empty means work_dir is required.
+	ProjectsDir string `json:"projects_dir"`
 }
 
 type Health struct {

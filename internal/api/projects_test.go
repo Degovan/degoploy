@@ -43,7 +43,7 @@ func (c *client) do(method, path, body string, out any) int {
 }
 
 const projectJSON = `{"name":"Shop","slug":"shop","provider":"gitea","repo_url":"git@gitea.example.com:acme/shop.git",
-	"work_dir":"/srv/shop","script_source":"managed","script_path":"","auto_pull":true,"timeout_sec":300,"enabled":true}`
+	"work_dir":"","script_source":"managed","script_path":"","auto_pull":true,"timeout_sec":300,"enabled":true}`
 
 func TestProjectPermissions(t *testing.T) {
 	srv, st := newTestServer(t)

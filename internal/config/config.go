@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -16,8 +17,11 @@ import (
 )
 
 type Config struct {
-	Listen         string        `yaml:"listen"`
-	DataDir        string        `yaml:"data_dir"`
+	Listen  string `yaml:"listen"`
+	DataDir string `yaml:"data_dir"`
+	// ProjectsDir is where a project without a working directory of its own is
+	// cloned, in <projects_dir>/<slug>. Empty means every project needs one.
+	ProjectsDir    string        `yaml:"projects_dir"`
 	BaseURL        string        `yaml:"base_url"`
 	MaxParallel    int           `yaml:"max_parallel"`
 	TrustedProxies []string      `yaml:"trusted_proxies"`
@@ -157,6 +161,7 @@ func applyEnv(cfg *Config) error {
 	str := map[string]*string{
 		"DEGOPLOY_LISTEN":             &cfg.Listen,
 		"DEGOPLOY_DATA_DIR":           &cfg.DataDir,
+		"DEGOPLOY_PROJECTS_DIR":       &cfg.ProjectsDir,
 		"DEGOPLOY_BASE_URL":           &cfg.BaseURL,
 		"DEGOPLOY_SECRET_KEY":         &cfg.SecretKey,
 		"DEGOPLOY_ADMIN_SOCKET":       &cfg.AdminSocket,
@@ -222,6 +227,19 @@ func (c *Config) finalize() error {
 		errs = append(errs, errors.New("data_dir is required"))
 	} else if abs, err := filepath.Abs(c.DataDir); err == nil {
 		c.DataDir = abs
+	}
+	if c.ProjectsDir != "" {
+		abs, err := filepath.Abs(c.ProjectsDir)
+		switch {
+		case err != nil:
+			errs = append(errs, fmt.Errorf("projects_dir: %w", err))
+		case abs == "/":
+			errs = append(errs, errors.New("projects_dir must not be the filesystem root"))
+		case overlaps(abs, c.DataDir):
+			errs = append(errs, fmt.Errorf("projects_dir must not overlap data_dir (%s): deploy keys live there", c.DataDir))
+		default:
+			c.ProjectsDir = abs
+		}
 	}
 	if c.MaxParallel < 1 {
 		errs = append(errs, errors.New("max_parallel must be >= 1"))
@@ -297,6 +315,43 @@ func (c *Config) DBPath() string { return filepath.Join(c.DataDir, "degoploy.db"
 
 // SecretKeyPath is the key file used when SecretKey is not set.
 func (c *Config) SecretKeyPath() string { return filepath.Join(c.DataDir, "secret.key") }
+
+// AddProjectsDir sets projects_dir in the YAML file at path, below data_dir,
+// when the file does not have the key yet. It reports whether it wrote it.
+func AddProjectsDir(path, dir string) (bool, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false, fmt.Errorf("read config: %w", err)
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return false, fmt.Errorf("parse config %s: %w", path, err)
+	}
+	if len(doc.Content) > 0 && mapValue(doc.Content[0], "projects_dir") != nil {
+		return false, nil
+	}
+	err = editFile(path, nil, func(root *yaml.Node, _ setter) {
+		key := strNode("projects_dir")
+		key.HeadComment = "Projects without a working directory of their own are cloned into <projects_dir>/<slug>."
+		at := len(root.Content)
+		for i := 0; i+1 < len(root.Content); i += 2 {
+			if root.Content[i].Value == "data_dir" {
+				at = i + 2
+			}
+		}
+		root.Content = slices.Insert(root.Content, at, key, strNode(dir))
+	})
+	return err == nil, err
+}
+
+// overlaps reports whether one of two absolute paths is inside the other.
+func overlaps(a, b string) bool {
+	inside := func(path, dir string) bool {
+		rel, err := filepath.Rel(dir, path)
+		return err == nil && rel != ".." && !strings.HasPrefix(rel, "../")
+	}
+	return a != "" && b != "" && (inside(a, b) || inside(b, a))
+}
 
 func splitList(s string) []string {
 	var out []string

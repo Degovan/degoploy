@@ -29,7 +29,7 @@ The header counts healthy, failing and running projects. Press `/` to search. Be
    | **Slug** | A short name used in URLs and folder names. It cannot change later |
    | **Git Provider** | GitHub or Gitea |
    | **Repository URL** | The SSH address, for example `git@github.com:acme/shop.git` |
-   | **Working Directory** | The folder on the server the repository is cloned into and the script runs in, for example `/var/www/shop` |
+   | **Working Directory** | The folder on the server the repository is cloned into and the script runs in. Leave it empty to use the folder degoploy manages, `/srv/degoploy/<slug>` on a standard install |
    | **Branch to Deploy** | Creates the first trigger rule for this branch. Optional |
 
 3. Under **Deploy Script**, pick where the script comes from:

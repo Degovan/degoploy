@@ -77,7 +77,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	t.Cleanup(func() { st.Close() })
 	f.store = st
-	f.manager = project.NewManager(st, dataDir)
+	f.manager = project.NewManager(st, dataDir, "")
 	f.hub = realtime.NewHub()
 	f.box, err = secrets.New(make([]byte, 32))
 	if err != nil {

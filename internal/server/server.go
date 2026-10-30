@@ -40,7 +40,7 @@ const deployGrace = 60 * time.Second
 func New(cfg *config.Config, st *store.Store, box *secrets.Box, version string) *Server {
 	sessions := auth.NewSessions(st, cfg.SessionTTL, cfg.SecureCookies())
 	hub := realtime.NewHub()
-	projects := project.NewManager(st, cfg.DataDir)
+	projects := project.NewManager(st, cfg.DataDir, cfg.ProjectsDir)
 	deploys := deploy.NewService(st, projects, hub, box, cfg.MaxParallel)
 	runtimes := toolchain.NewSet(cfg.DataDir, toolchain.Options{
 		NodeMirror: cfg.NodeMirror, PHPMirror: cfg.PHPMirror, ComposerURL: cfg.ComposerURL,

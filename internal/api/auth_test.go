@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -51,7 +52,12 @@ func newTestServerWith(t *testing.T, configure func(cfg *config.Config, baseURL 
 		sso = auth.NewOIDCProvider(cfg.OIDC)
 	}
 	hub := realtime.NewHub()
-	projects := project.NewManager(st, dataDir)
+	// Tests create projects without a work_dir, so they land in here.
+	projectsDir := filepath.Join(t.TempDir(), "projects")
+	if err := os.Mkdir(projectsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	projects := project.NewManager(st, dataDir, projectsDir)
 	box, err := secrets.New(make([]byte, 32))
 	if err != nil {
 		t.Fatal(err)

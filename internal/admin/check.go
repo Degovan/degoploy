@@ -37,6 +37,7 @@ func Check(ctx context.Context, path string) Report {
 
 	set("listen", cfg.Listen)
 	set("data_dir", cfg.DataDir)
+	set("projects_dir", orNone(cfg.ProjectsDir))
 	set("base_url", orNone(cfg.BaseURL))
 	set("admin_socket", cfg.AdminSocket)
 	set("local_login", strconv.FormatBool(cfg.LocalLogin))

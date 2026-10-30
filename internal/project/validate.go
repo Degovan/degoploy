@@ -83,8 +83,9 @@ func (in *Input) normalize() {
 	}
 }
 
-// validate checks a normalized Input. dataDir is degoploy's own data directory.
-func (in *Input) validate(dataDir string, creating bool) error {
+// validate checks a normalized Input. dataDir is degoploy's own data directory
+// and projectsDir the folder that holds projects' working directories.
+func (in *Input) validate(dataDir, projectsDir string, creating bool) error {
 	if in.Name == "" || len(in.Name) > 100 {
 		return invalid("name", "must be 1–100 characters")
 	}
@@ -97,7 +98,7 @@ func (in *Input) validate(dataDir string, creating bool) error {
 	if err := validateRepoURL(in.RepoURL); err != nil {
 		return err
 	}
-	if err := validateWorkDir(in.WorkDir, dataDir); err != nil {
+	if err := validateWorkDir(in.WorkDir, dataDir, projectsDir); err != nil {
 		return err
 	}
 
@@ -142,7 +143,7 @@ func validateRepoURL(u string) error {
 	return invalid("repo_url", "use git@host:owner/repo.git, ssh://… or https://…")
 }
 
-func validateWorkDir(dir, dataDir string) error {
+func validateWorkDir(dir, dataDir, projectsDir string) error {
 	if dir == "" {
 		return invalid("work_dir", "is required")
 	}
@@ -154,6 +155,9 @@ func validateWorkDir(dir, dataDir string) error {
 	}
 	if dataDir != "" && (within(dir, dataDir) || within(dataDir, dir)) {
 		return invalid("work_dir", "must not overlap degoploy's data directory (%s)", dataDir)
+	}
+	if projectsDir != "" && within(projectsDir, dir) {
+		return invalid("work_dir", "must not contain the projects folder (%s); leave it empty to use %s/<slug>", projectsDir, projectsDir)
 	}
 	return nil
 }

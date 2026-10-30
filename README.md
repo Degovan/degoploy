@@ -30,8 +30,9 @@ curl -fsSL https://raw.githubusercontent.com/irsyadulibad/degoploy/main/install.
 
 The script downloads the latest release and checks its SHA256 sum, then runs `degoploy setup`. Setup asks
 a few questions, installs git and ssh if they are missing, and creates a `degoploy` system user, the
-config in `/etc/degoploy` and a systemd service. It starts the service, asks for the first admin, and
-prints the web address. Put a reverse proxy with HTTPS in front of it.
+config in `/etc/degoploy`, the projects folder `/srv/degoploy` and a systemd service. It starts the
+service, asks for the first admin, and prints the web address. Put a reverse proxy with HTTPS in front
+of it.
 
 To update a server later:
 

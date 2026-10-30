@@ -29,6 +29,7 @@ import (
 
 	"github.com/degovan/degoploy/deploy"
 	"github.com/degovan/degoploy/internal/admin"
+	"github.com/degovan/degoploy/internal/config"
 )
 
 // Where setup installs degoploy.
@@ -38,7 +39,9 @@ const (
 	confDir     = "/etc/degoploy"
 	envFile     = confDir + "/degoploy.env"
 	installData = "/var/lib/degoploy"
-	serviceUser = "degoploy"
+	// installProjects holds projects that do not name a working directory.
+	installProjects = "/srv/degoploy"
+	serviceUser     = "degoploy"
 )
 
 // installOptions answer setup's questions ahead of time, for scripts.
@@ -262,11 +265,17 @@ func install(ctx context.Context, s installState, o *installOptions) error {
 		success("Installed degoploy %s to %s", version, installBin)
 	}
 
+	configChanged := false
 	if fresh {
 		if err := writeConfig(listen, baseURL); err != nil {
 			return err
 		}
 		success("Wrote %s", defaultConfig)
+	} else if added, err := config.AddProjectsDir(defaultConfig, installProjects); err != nil {
+		return err
+	} else if added {
+		configChanged = true
+		success("Set projects_dir: %s in %s", installProjects, defaultConfig)
 	}
 	if err := errors.Join(os.Chown(defaultConfig, uid, gid), os.Chmod(defaultConfig, 0o640)); err != nil {
 		return err
@@ -289,6 +298,15 @@ func install(ctx context.Context, s installState, o *installOptions) error {
 	rep := admin.Check(ctx, defaultConfig)
 	if rep.Error != "" {
 		return withHint("the configuration does not load: "+rep.Error, "Fix "+defaultConfig+", then run: sudo degoploy setup")
+	}
+	cfg, err := config.Load(defaultConfig)
+	if err != nil {
+		return err
+	}
+	if cfg.ProjectsDir != "" {
+		if err := ensureProjectsDir(cfg.ProjectsDir, uid, gid); err != nil {
+			return err
+		}
 	}
 
 	if !s.systemd {
@@ -329,7 +347,7 @@ func install(ctx context.Context, s installState, o *installOptions) error {
 		}
 	}
 	switch {
-	case active && (binChanged || unitChanged || c == nil):
+	case active && (binChanged || unitChanged || configChanged || c == nil):
 		if c != nil {
 			c.Close()
 		}
@@ -383,6 +401,7 @@ func install(ctx context.Context, s installState, o *installOptions) error {
 		{"web", webAddress(st)},
 		{"config", defaultConfig + muted.Render("   secrets: "+envFile)},
 		{"data", installData},
+		{"projects", cmp.Or(cfg.ProjectsDir, muted.Render("(not set: each project names its folder)"))},
 		{"logs", "journalctl -u degoploy -f"},
 		{"manage", "degoploy " + muted.Render("  as root or a member of the "+serviceUser+" group, no sudo needed")},
 	})
@@ -395,7 +414,11 @@ func install(ctx context.Context, s installState, o *installOptions) error {
 	if st.BaseURL == "" {
 		lipgloss.Println("  " + muted.Render("·") + " Put a reverse proxy with HTTPS in front, then set base_url in " + defaultConfig + ".")
 	}
-	lipgloss.Println("  " + muted.Render("·") + " Give " + serviceUser + " write access to each project's directory (see INSTALL.md).")
+	if cfg.ProjectsDir != "" {
+		lipgloss.Println("  " + muted.Render("·") + " Projects are cloned into " + cfg.ProjectsDir + "/<slug>. A folder elsewhere needs write access for " + serviceUser + " (see INSTALL.md).")
+	} else {
+		lipgloss.Println("  " + muted.Render("·") + " Give " + serviceUser + " write access to each project's directory (see INSTALL.md).")
+	}
 	lipgloss.Println("  " + muted.Render("·") + " Open " + blue.Render(webAddress(st)) + " and sign in.")
 	return nil
 }
@@ -455,6 +478,7 @@ func writeConfig(listen, baseURL string) error {
 		"Listen":      listen,
 		"BaseURL":     baseURL,
 		"DataDir":     installData,
+		"ProjectsDir": installProjects,
 		"EnvFile":     envFile,
 		"RedirectURL": cmp.Or(baseURL, "https://deploy.example.com") + "/auth/oidc/callback",
 	})
@@ -528,6 +552,46 @@ func ensureDir(path string, mode os.FileMode, uid, gid int) error {
 		return err
 	}
 	return errors.Join(os.Chown(path, uid, gid), os.Chmod(path, mode))
+}
+
+// webGroups are the groups web servers run as, by distribution.
+var webGroups = []string{"www-data", "nginx", "apache", "http"}
+
+// ensureProjectsDir makes the folder projects are cloned into: owned by the
+// service user and setgid, so every project inherits its group. A new folder
+// gets the web server's group, so the server can read the apps and write to
+// their storage folders. A folder someone else owns is left as it is.
+func ensureProjectsDir(dir string, uid, gid int) error {
+	st, err := os.Stat(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		group := serviceUser
+		for _, name := range webGroups {
+			if g, err := user.LookupGroup(name); err == nil {
+				gid, _ = strconv.Atoi(g.Gid)
+				group = name
+				break
+			}
+		}
+		if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+			return err
+		}
+		if err := os.Mkdir(dir, 0o775); err != nil {
+			return err
+		}
+		if err := errors.Join(os.Chown(dir, uid, gid), os.Chmod(dir, 0o775|fs.ModeSetgid)); err != nil {
+			return err
+		}
+		success("Created %s for projects (group %s)", dir, group)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if sys, ok := st.Sys().(*syscall.Stat_t); !ok || int(sys.Uid) != uid {
+		warning("%s is not owned by %s; it needs write access there to clone projects", dir, serviceUser)
+		return nil
+	}
+	return os.Chmod(dir, st.Mode().Perm()|0o070|fs.ModeSetgid)
 }
 
 func lookupIDs(name string) (int, int, error) {

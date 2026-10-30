@@ -10,6 +10,10 @@
 # Bind to loopback and put a reverse proxy (HTTPS) in front.
 listen: "127.0.0.1:8090"
 data_dir: /var/lib/degoploy
+# Projects without a working directory of their own are cloned into <projects_dir>/<slug>.
+# degoploy setup creates it setgid, in the web server's group. Leave it out to require
+# a working directory for every project.
+projects_dir: /srv/degoploy
 # Public URL; https:// enables Secure cookies.
 base_url: https://deploy.example.com
 # Maximum deployments running at the same time across all projects.

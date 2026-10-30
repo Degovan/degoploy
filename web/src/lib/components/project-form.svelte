@@ -1,5 +1,6 @@
 <script lang="ts" module>
 	import type { CreateProjectRequest, Project } from '#lib/api/types.gen.js';
+	import { session } from '#lib/stores/session.svelte.js';
 
 	export type ProjectFormValues = CreateProjectRequest;
 
@@ -17,13 +18,20 @@
 		default_branch: 'main'
 	});
 
+	/** The folder degoploy picks for a project without one; empty when it picks none. */
+	export const defaultWorkDir = (slug: string): string => {
+		const dir = session.me?.projects_dir;
+		return dir ? `${dir}/${slug}` : '';
+	};
+
 	/** Form values for an existing project (only the editable fields). */
 	export const projectToForm = (p: Project): ProjectFormValues => ({
 		name: p.name,
 		slug: p.slug,
 		provider: p.provider,
 		repo_url: p.repo_url,
-		work_dir: p.work_dir,
+		// The default folder shows as the placeholder, so the field stays empty.
+		work_dir: p.work_dir === defaultWorkDir(p.slug) ? '' : p.work_dir,
 		script_source: p.script_source,
 		script_path: p.script_path || '.degoploy/deploy.sh',
 		auto_pull: p.auto_pull,
@@ -87,6 +95,7 @@
 	let advancedOpen = $state(mode === 'edit');
 
 	const scriptFields = ['script_source', 'script_path', 'auto_pull', 'timeout_sec'];
+	const projectsDir = $derived(session.me?.projects_dir ?? '');
 
 	$effect(() => {
 		if (!slugTouched) v.slug = slugify(v.name);
@@ -268,15 +277,20 @@
 					/>
 					<Input
 						id="work_dir"
-						required
+						required={!projectsDir}
 						bind:value={v.work_dir}
 						aria-invalid={!!errors.work_dir}
 						class="h-10 pl-9 font-mono"
-						placeholder="/var/www/my-app"
+						placeholder={defaultWorkDir(v.slug || 'my-app') || '/var/www/my-app'}
 					/>
 				</div>
 				<p class={hint}>
-					Absolute path on this server. The repository is cloned here on the first deploy.
+					{#if projectsDir}
+						Leave empty to use <code>{projectsDir}/{v.slug || '<slug>'}</code>, which degoploy
+						prepares itself. Another folder needs write access for degoploy.
+					{:else}
+						Absolute path on this server. The repository is cloned here on the first deploy.
+					{/if}
 				</p>
 				{@render fieldError('work_dir')}
 			</div>

@@ -4,6 +4,9 @@
 # The SSO and Email pages save their settings back into this file.
 listen: {{quote .Listen}}
 data_dir: {{.DataDir}}
+# Projects without a working directory of their own are cloned into
+# <projects_dir>/<slug>. Setup makes it setgid, in the web server's group.
+projects_dir: {{.ProjectsDir}}
 # Public URL behind your reverse proxy; https:// enables Secure cookies.
 base_url: {{quote .BaseURL}}
 # Maximum deployments running at the same time across all projects.

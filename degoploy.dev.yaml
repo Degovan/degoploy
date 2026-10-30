@@ -4,3 +4,4 @@
 # webhook URLs and allowed WebSocket origins follow the browser's address.
 listen: "127.0.0.1:8090"
 data_dir: ./data
+projects_dir: ./projects

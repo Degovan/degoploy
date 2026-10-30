@@ -17,7 +17,9 @@ StateDirectoryMode=0700
 # the degoploy group may use it, so they manage degoploy without sudo.
 RuntimeDirectory=degoploy
 RuntimeDirectoryMode=0750
-UMask=0022
+# Deployments leave files the web server's group may write to (with the setgid
+# projects folder that setup makes). The data directory itself stays 0700.
+UMask=0002
 
 Restart=on-failure
 RestartSec=5s

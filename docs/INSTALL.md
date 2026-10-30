@@ -47,9 +47,11 @@ Tanpa internet di server: unduh `degoploy-linux-amd64.tar.gz` dari halaman
    `--no-operator` untuk melewati),
 4. memasang binary ke `/usr/local/bin/degoploy`,
 5. menulis `/etc/degoploy/degoploy.yaml` dan `/etc/degoploy/degoploy.env` **jika belum ada**, lalu
-   memeriksanya,
-6. memasang `degoploy.service`, lalu `enable` + `start`, dan menunggu sampai service menjawab,
-7. membuat admin pertama bila belum ada.
+   memeriksanya (pada instalasi lama ia menambahkan `projects_dir: /srv/degoploy` bila belum ada),
+6. membuat folder project `/srv/degoploy` milik `degoploy`, setgid, dengan grup web server
+   (`www-data`, `nginx`, `apache` atau `http`, mana yang ada),
+7. memasang `degoploy.service`, lalu `enable` + `start`, dan menunggu sampai service menjawab,
+8. membuat admin pertama bila belum ada.
 
 Opsi lain: `--listen 127.0.0.1:9000`, `--no-start`. Setiap langkah memeriksa dulu, jadi menjalankan
 `sudo degoploy setup` lagi juga memperbaiki izin file dan unit yang berubah.
@@ -71,6 +73,7 @@ make dist            # release/degoploy-linux-{amd64,arm64}.tar.gz + SHA256SUMS
 | `/etc/degoploy/degoploy.yaml` | konfigurasi (halaman *SSO* dan *Email* menyimpan ke sini) | `0640` degoploy:degoploy |
 | `/etc/degoploy/degoploy.env` | secret (`DEGOPLOY_OIDC_SECRET=…`), dibaca systemd | `0600` root |
 | `/var/lib/degoploy/` | database, deploy key, script, log | `0700` degoploy |
+| `/srv/degoploy/<slug>/` | folder kerja project yang tidak memilih folder sendiri (`projects_dir`) | `2775` degoploy:www-data |
 | `/var/lib/degoploy/node/`, `php/` | versi Node.js dan PHP untuk deploy script (diunduh otomatis) | `0755` degoploy |
 | `/run/degoploy/admin.sock` | socket untuk CLI `degoploy` | `0660` degoploy:degoploy |
 | `/etc/systemd/system/degoploy.service` | unit systemd | `0644` |
@@ -146,7 +149,14 @@ Jika indikator di pojok kanan atas UI tetap "Reconnecting…", WebSocket belum d
 
 ## 5. Project pertama
 
-1. **Folder kerja.** degoploy meng-clone ke `work_dir` sebagai user `degoploy`, jadi user itu harus bisa menulis di sana:
+1. **Folder kerja.** Kosongkan *Working Directory* dan degoploy memakai `/srv/degoploy/<slug>`
+   (`projects_dir` di config). Folder itu dibuat sendiri saat deploy pertama, ikut grup web server, dan
+   file hasil deploy bisa ditulis grup itu (umask service `0002`), jadi `storage/` atau `cache/` aplikasi
+   tidak perlu di-`chown` lagi. Arahkan web server ke `/srv/degoploy/<slug>` (misalnya `…/public`).
+
+   Folder lain, misalnya `/var/www/my-app` atau di home user, tetap boleh. degoploy meng-clone sebagai
+   user `degoploy`, jadi user itu harus bisa menulis di sana. Saat project disimpan, degoploy memeriksanya
+   dan menampilkan perintah perbaikan bila belum bisa, misalnya:
 
    ```bash
    sudo install -d -o degoploy -g www-data -m 2775 /var/www/my-app
@@ -154,6 +164,7 @@ Jika indikator di pojok kanan atas UI tetap "Reconnecting…", WebSocket belum d
    ```
 
    Folder harus kosong atau sudah berupa repo git; folder berisi file lain ditolak agar tidak tertimpa.
+   Folder di `/home` sering tertutup (`0750`), jadi `/srv/degoploy` biasanya pilihan yang lebih mudah.
 
 2. **Buat project** di UI (*Projects → New project*), isi URL SSH repo dan *Branch to deploy*.
 3. **Deploy key**: salin public key di *Overview → Deploy key* ke repo
@@ -280,7 +291,7 @@ degoploy config check
 | Delivery `rejected: signature does not match` | Secret di webhook tidak sama dengan di degoploy (atau di-regenerate) |
 | Delivery `404` | Payload URL salah atau project sudah dihapus |
 | Deploy gagal `refusing to clone` | `work_dir` berisi file tetapi bukan repo git |
-| Deploy gagal `mkdir … permission denied` | User `degoploy` tidak bisa menulis ke `work_dir` |
+| Deploy gagal `mkdir … permission denied` | User `degoploy` tidak bisa menulis ke `work_dir`; simpan ulang project untuk melihat perintah perbaikannya |
 | Live log tidak muncul | Proxy tidak meneruskan WebSocket `/ws` |
 | Login SSO: "not in a group" | Nama group tidak ada di `role_mapping`; lihat klaim di halaman *SSO* |
 | CLI: `may not manage degoploy` | User Anda belum di grup `degoploy`: `sudo usermod -aG degoploy $USER`, lalu login ulang |

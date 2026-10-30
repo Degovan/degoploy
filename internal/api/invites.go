@@ -288,6 +288,7 @@ func (a *API) acceptInvite(w http.ResponseWriter, r *http.Request) {
 		User:        toUser(u),
 		CSRFToken:   sess.CSRFToken,
 		Permissions: a.permissions(r, u),
+		ProjectsDir: a.projects.ProjectsDir(),
 	})
 }
 

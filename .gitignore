@@ -1,6 +1,7 @@
 /bin/
 /release/
 /data/
+/projects/
 /internal/web/dist/
 /degoploy.yaml
 web/node_modules/

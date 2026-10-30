@@ -19,7 +19,7 @@ func newManager(t *testing.T) (*Manager, *store.Store, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	return NewManager(st, dataDir), st, dataDir
+	return NewManager(st, dataDir, filepath.Join(t.TempDir(), "projects")), st, dataDir
 }
 
 func validInput(workDir string) Input {
@@ -56,6 +56,10 @@ func TestValidate(t *testing.T) {
 		{"root workdir", func(in *Input) { in.WorkDir = "/" }, "work_dir"},
 		{"workdir inside data", func(in *Input) { in.WorkDir = "/data/projects/x" }, "work_dir"},
 		{"workdir containing data", func(in *Input) { in.WorkDir = "/" + "data/.." + "/" }, "work_dir"},
+		{"workdir inside projects", func(in *Input) { in.WorkDir = "/srv/degoploy/app" }, ""},
+		{"workdir is projects", func(in *Input) { in.WorkDir = "/srv/degoploy" }, "work_dir"},
+		{"workdir containing projects", func(in *Input) { in.WorkDir = "/srv" }, "work_dir"},
+		{"workdir missing", func(in *Input) { in.WorkDir = "" }, "work_dir"},
 		{"repo needs auto pull", func(in *Input) {
 			in.ScriptSource, in.ScriptPath, in.AutoPull = store.ScriptRepo, "deploy.sh", false
 		}, "auto_pull"},
@@ -67,7 +71,7 @@ func TestValidate(t *testing.T) {
 		in := validInput("/srv/app")
 		c.mut(&in)
 		in.normalize()
-		if got := fieldOf(in.validate("/data", true)); got != c.field {
+		if got := fieldOf(in.validate("/data", "/srv/degoploy", true)); got != c.field {
 			t.Errorf("%s: field = %q, want %q", c.name, got, c.field)
 		}
 	}
@@ -76,8 +80,9 @@ func TestValidate(t *testing.T) {
 func TestCreateUpdateDelete(t *testing.T) {
 	ctx := context.Background()
 	m, st, _ := newManager(t)
+	root := t.TempDir()
 
-	p, err := m.Create(ctx, validInput("/srv/my-app"), 0)
+	p, err := m.Create(ctx, validInput(filepath.Join(root, "my-app")), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,10 +112,10 @@ func TestCreateUpdateDelete(t *testing.T) {
 	}
 
 	// Same slug or overlapping work_dir must be rejected.
-	if _, err := m.Create(ctx, validInput("/srv/other"), 0); fieldOf(err) != "slug" {
+	if _, err := m.Create(ctx, validInput(filepath.Join(root, "other")), 0); fieldOf(err) != "slug" {
 		t.Fatalf("duplicate slug: %v", err)
 	}
-	other := validInput("/srv/my-app/sub")
+	other := validInput(filepath.Join(root, "my-app", "sub"))
 	other.Slug = "other"
 	if _, err := m.Create(ctx, other, 0); fieldOf(err) != "work_dir" {
 		t.Fatalf("nested work_dir: %v", err)
@@ -151,6 +156,78 @@ func TestCreateUpdateDelete(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("project dir still exists: %v", err)
+	}
+}
+
+func TestDefaultWorkDir(t *testing.T) {
+	ctx := context.Background()
+	m, _, _ := newManager(t)
+
+	p, err := m.Create(ctx, validInput(""), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(m.ProjectsDir(), "my-app"); p.WorkDir != want {
+		t.Fatalf("work_dir = %q, want %q", p.WorkDir, want)
+	}
+
+	// Clearing it on update goes back to the default.
+	in := InputFrom(p)
+	in.WorkDir = t.TempDir()
+	if err := m.Update(ctx, p, in, 0); err != nil {
+		t.Fatal(err)
+	}
+	in.WorkDir = ""
+	if err := m.Update(ctx, p, in, 0); err != nil || p.WorkDir != filepath.Join(m.ProjectsDir(), "my-app") {
+		t.Fatalf("cleared work_dir = %q, %v", p.WorkDir, err)
+	}
+}
+
+func TestWorkDirAccess(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root may write anywhere")
+	}
+	root := t.TempDir()
+	locked := filepath.Join(root, "locked")
+	closed := filepath.Join(root, "closed")
+	notGit := filepath.Join(root, "not-git")
+	file := filepath.Join(root, "file")
+	git := filepath.Join(root, "git")
+	empty := filepath.Join(root, "empty")
+	os.Mkdir(empty, 0o755)
+	os.Mkdir(locked, 0o555)
+	os.Mkdir(closed, 0o700)
+	os.Mkdir(filepath.Join(closed, "app"), 0o755)
+	os.Chmod(closed, 0o600)
+	t.Cleanup(func() { os.Chmod(closed, 0o700) })
+	os.Mkdir(notGit, 0o755)
+	os.WriteFile(filepath.Join(notGit, "index.php"), nil, 0o644)
+	os.WriteFile(file, nil, 0o644)
+	os.MkdirAll(filepath.Join(git, ".git"), 0o755)
+
+	cases := []struct {
+		dir  string
+		want string // part of the message; empty means accepted
+	}{
+		{filepath.Join(root, "new", "app"), ""},
+		{empty, ""},
+		{git, ""},
+		{filepath.Join(locked, "app"), "sudo install -d"},
+		{filepath.Join(closed, "app"), "setfacl -m"},
+		{locked, "setfacl -R"},
+		{notGit, "not a git repository"},
+		{file, "is a file"},
+		{filepath.Join(file, "app"), "is a file"},
+	}
+	for _, c := range cases {
+		err := checkWorkDirAccess(c.dir)
+		var ve *ValidationError
+		switch {
+		case c.want == "" && err != nil:
+			t.Errorf("%s: %v", c.dir, err)
+		case c.want != "" && (!errors.As(err, &ve) || ve.Field != "work_dir" || !strings.Contains(ve.Message, c.want)):
+			t.Errorf("%s: err = %v, want %q", c.dir, err, c.want)
+		}
 	}
 }
 

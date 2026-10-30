@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -81,6 +83,9 @@ func TestWebSocketDeploymentEvents(t *testing.T) {
 	admin := login(t, srv.URL, "admin", "admin-password-1")
 	var p api.Project
 	admin.do("POST", "/api/v1/projects", projectJSON, &p)
+	// Close the projects folder so the deployment fails while preparing work_dir.
+	os.Chmod(filepath.Dir(p.WorkDir), 0o555)
+	t.Cleanup(func() { os.Chmod(filepath.Dir(p.WorkDir), 0o755) })
 
 	conn := dialWS(t, srv.URL, admin)
 	send(t, conn, `{"op":"subscribe","topic":"events"}`)
@@ -91,7 +96,7 @@ func TestWebSocketDeploymentEvents(t *testing.T) {
 		t.Fatalf("manual deploy: %d %+v", code, d)
 	}
 
-	// The deployment fails (unwritable work_dir); wait for the final event.
+	// The deployment fails (unwritable projects folder); wait for the final event.
 	readUntil(t, conn, func(m wsMsg) bool {
 		var dep api.Deployment
 		json.Unmarshal(m.Data, &dep)
@@ -108,7 +113,7 @@ func TestWebSocketDeploymentEvents(t *testing.T) {
 			log.Write(b)
 		}
 	}
-	// /srv/shop is not writable in tests, so the deployment fails while preparing it.
+	// The projects folder is read-only, so the deployment fails while preparing work_dir.
 	if l := log.String(); !strings.Contains(l, "Deployment #1 of Shop") || !strings.Contains(l, "✖") {
 		t.Fatalf("backfilled log:\n%s", l)
 	}

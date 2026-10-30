@@ -25,7 +25,7 @@ If you leave the page with unsaved changes, degoploy asks first.
 ## Repository
 
 - **Git Repository**: the provider and repository URL. Use the SSH URL for a private repository; degoploy signs in with the project's deploy key. Changing the URL keeps the existing working directory.
-- **Working Directory**: the folder on the server the repository is cloned into (on the first deploy) and the script runs in.
+- **Working Directory**: the folder on the server the repository is cloned into (on the first deploy) and the script runs in. Empty means the folder degoploy manages, shown as the placeholder. For another folder, degoploy checks that it may write there when you save, and shows the command that gives it access if not.
 
 ## Deploy script
 

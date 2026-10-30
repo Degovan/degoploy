@@ -23,13 +23,20 @@ import (
 var ErrSlugTaken = &ValidationError{Field: "slug", Message: "is already used by another project"}
 
 type Manager struct {
-	store   *store.Store
-	dataDir string
+	store       *store.Store
+	dataDir     string
+	projectsDir string
 }
 
-func NewManager(st *store.Store, dataDir string) *Manager {
-	return &Manager{store: st, dataDir: dataDir}
+// NewManager manages projects with their data in dataDir. Projects without a
+// working directory of their own get <projectsDir>/<slug>; an empty
+// projectsDir makes the working directory required.
+func NewManager(st *store.Store, dataDir, projectsDir string) *Manager {
+	return &Manager{store: st, dataDir: dataDir, projectsDir: projectsDir}
 }
+
+// ProjectsDir is where projects without a working directory of their own go.
+func (m *Manager) ProjectsDir() string { return m.projectsDir }
 
 func (m *Manager) Dir(p *store.Project) string    { return filepath.Join(m.dataDir, "projects", p.Slug) }
 func (m *Manager) SSHDir(p *store.Project) string { return filepath.Join(m.Dir(p), "ssh") }
@@ -58,11 +65,17 @@ func InputFrom(p *store.Project) Input {
 
 func (m *Manager) Create(ctx context.Context, in Input, userID int64) (*store.Project, error) {
 	in.normalize()
-	if err := in.validate(m.dataDir, true); err != nil {
+	m.defaultWorkDir(&in, in.Slug)
+	if err := in.validate(m.dataDir, m.projectsDir, true); err != nil {
 		return nil, err
 	}
 	if err := m.checkWorkDirFree(ctx, in.WorkDir, 0); err != nil {
 		return nil, err
+	}
+	if in.AutoPull {
+		if err := checkWorkDirAccess(in.WorkDir); err != nil {
+			return nil, err
+		}
 	}
 	var firstRule *store.TriggerRule
 	if b := strings.TrimSpace(in.DefaultBranch); b != "" {
@@ -132,11 +145,19 @@ func (m *Manager) initDir(ctx context.Context, p *store.Project, userID int64) e
 // Update applies in to p. The slug is immutable and ignored.
 func (m *Manager) Update(ctx context.Context, p *store.Project, in Input, userID int64) error {
 	in.normalize()
-	if err := in.validate(m.dataDir, false); err != nil {
+	m.defaultWorkDir(&in, p.Slug)
+	if err := in.validate(m.dataDir, m.projectsDir, false); err != nil {
 		return err
 	}
 	if in.WorkDir != p.WorkDir {
 		if err := m.checkWorkDirFree(ctx, in.WorkDir, p.ID); err != nil {
+			return err
+		}
+	}
+	// Only a new folder, or pulling newly turned on: a project whose folder
+	// broke later can still be edited, and its deployments say what is wrong.
+	if in.AutoPull && (in.WorkDir != p.WorkDir || !p.AutoPull) {
+		if err := checkWorkDirAccess(in.WorkDir); err != nil {
 			return err
 		}
 	}
@@ -195,6 +216,13 @@ func (m *Manager) TestConnection(ctx context.Context, p *store.Project) ([]gitop
 		return nil, err
 	}
 	return gitops.LsRemote(ctx, m.GitEnv(p), p.RepoURL)
+}
+
+// defaultWorkDir puts a project without a working directory in projects_dir.
+func (m *Manager) defaultWorkDir(in *Input, slug string) {
+	if in.WorkDir == "" && m.projectsDir != "" && slugRe.MatchString(slug) {
+		in.WorkDir = filepath.Join(m.projectsDir, slug)
+	}
 }
 
 // checkWorkDirFree rejects a work_dir equal to, inside, or containing another project's.
