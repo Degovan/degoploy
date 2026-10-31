@@ -121,23 +121,33 @@ func TestNodeInstallResolveUpdate(t *testing.T) {
 	)
 	m := New(NodeJS{}, filepath.Join(t.TempDir(), "node"), mirror.URL)
 
-	// Nothing installed: "22" means the newest 22.x release.
-	got, installed, err := m.Resolve(ctx, "22")
-	if err != nil || got != v("22.12.0") || installed {
-		t.Fatalf("Resolve(22) = %v %v %v", got, installed, err)
+	// Installing "22" fetches the newest 22.x release.
+	if got, err := m.Latest(ctx, "22"); err != nil || got != v("22.12.0") {
+		t.Fatalf("Latest(22) = %v %v", got, err)
 	}
 	// Ranges prefer LTS releases over a newer current one.
-	if got, _, _ := m.Resolve(ctx, ">=20"); got != v("22.12.0") {
-		t.Fatalf("Resolve(>=20) = %v", got)
+	if got, _ := m.Latest(ctx, ">=20"); got != v("22.12.0") {
+		t.Fatalf("Latest(>=20) = %v", got)
 	}
-	if got, _, _ := m.Resolve(ctx, "lts/iron"); got != v("20.19.0") {
-		t.Fatalf("Resolve(lts/iron) = %v", got)
+	if got, _ := m.Latest(ctx, "lts/iron"); got != v("20.19.0") {
+		t.Fatalf("Latest(lts/iron) = %v", got)
 	}
-	if got, _, _ := m.Resolve(ctx, "node"); got != v("24.1.0") {
-		t.Fatalf("Resolve(node) = %v", got)
+	if got, _ := m.Latest(ctx, "node"); got != v("24.1.0") {
+		t.Fatalf("Latest(node) = %v", got)
 	}
-	if _, _, err := m.Resolve(ctx, "19"); err == nil {
-		t.Fatal("Resolve(19) found a release")
+	if _, err := m.Latest(ctx, "19"); err == nil {
+		t.Fatal("Latest(19) found a release")
+	}
+
+	// Nothing installed: a deployment finds nothing and downloads nothing.
+	if _, ok, err := m.Find("22"); ok || err != nil {
+		t.Fatalf("Find(22) before install = %v %v", ok, err)
+	}
+	if _, _, err := m.Use(ctx, "22", nil); !errors.Is(err, ErrNotInstalled) || mirror.Downloads.Load() != 0 {
+		t.Fatalf("Use(22) before install = %v, %d downloads", err, mirror.Downloads.Load())
+	}
+	if _, _, err := m.Find("not a version"); err == nil {
+		t.Fatal("Find accepted a bad spec")
 	}
 
 	// An installed version that fits wins over a newer release.
@@ -148,11 +158,14 @@ func TestNodeInstallResolveUpdate(t *testing.T) {
 	if !strings.Contains(log.String(), "checksum verified") || !strings.Contains(log.String(), "(100%)") || len(m.Installing()) != 0 {
 		t.Fatalf("log = %q", log.String())
 	}
-	if got, installed, _ := m.Resolve(ctx, "22"); got != v("22.11.0") || !installed {
-		t.Fatalf("Resolve(22) after install = %v %v", got, installed)
+	if got, ok, _ := m.Find("22"); got != v("22.11.0") || !ok {
+		t.Fatalf("Find(22) after install = %v %v", got, ok)
 	}
-	if got, _, _ := m.Resolve(ctx, "lts"); got != v("22.11.0") {
-		t.Fatalf("Resolve(lts) = %v", got)
+	if got, _, _ := m.Find("lts"); got != v("22.11.0") {
+		t.Fatalf("Find(lts) = %v", got)
+	}
+	if _, ok, _ := m.Find("20"); ok {
+		t.Fatal("Find(20) found a version that is not installed")
 	}
 	out, err := os.ReadFile(filepath.Join(m.BinDir(Installed{Version: v("22.11.0")}), "npm"))
 	if err != nil || !strings.Contains(string(out), "npm") {

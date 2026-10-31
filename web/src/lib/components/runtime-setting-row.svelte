@@ -1,18 +1,21 @@
 <script lang="ts">
-	import { createQuery } from '@tanstack/svelte-query';
 	import { resolve } from '$app/paths';
-	import { lineOf, runtimeExamples, runtimeKeys, runtimesApi } from '#lib/api/runtimes.js';
+	import { lineOf, runtimeExamples } from '#lib/api/runtimes.js';
 	import type { RuntimeStatus } from '#lib/api/types.gen.js';
 	import { Input } from '#lib/components/ui/input/index.js';
 	import { Label } from '#lib/components/ui/label/index.js';
 	import { cn } from '#lib/utils.js';
+	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
+	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 
-	// One runtime's setting in a project: Off, Auto, or a version.
+	// One runtime's setting in a project: Off, Auto, or one of the installed
+	// versions. Installing happens on the Runtimes page only.
 	let {
 		name,
 		title,
 		value = $bindable(),
 		used,
+		missing = false,
 		status,
 		error = '',
 		canManage
@@ -22,6 +25,8 @@
 		value: string;
 		/** The version the latest deployment ran with. */
 		used: string;
+		/** value is a saved version that no installed one fits. */
+		missing?: boolean;
 		/** The runtime on this server, when the viewer may see it. */
 		status?: RuntimeStatus;
 		error?: string;
@@ -29,22 +34,20 @@
 	} = $props();
 
 	const ex = $derived(runtimeExamples[name] ?? { line: '1', exact: '1.0.0', files: [] });
-	// Quick picks: the newest lines from the release list (LTS lines for Node.js).
-	const releases = createQuery(() => ({
-		queryKey: runtimeKeys.releases(name),
-		queryFn: () => runtimesApi.releases(name),
-		enabled: canManage,
-		staleTime: 60 * 60 * 1000,
-		retry: false
-	}));
+	// Quick picks: the lines of the installed versions, newest first, each with
+	// the version it takes now.
+	const installed = $derived(status?.installed ?? []);
 	const picks = $derived.by(() => {
-		const all = releases.data ?? [];
-		const lines = (all.some((r) => r.lts) ? all.filter((r) => r.lts) : all)
-			.slice(0, 3)
-			.map((r) => lineOf(name, r.version));
-		const fallback = name === 'php' ? ['8.4', '8.3', '8.2'] : ['24', '22', '20'];
-		return [...(name === 'node' ? ['lts'] : []), ...(lines.length ? lines : fallback)];
+		const out: { spec: string; version: string }[] = [];
+		const lts = installed.find((v) => v.lts);
+		if (name === 'node' && lts) out.push({ spec: 'lts', version: lts.version });
+		for (const v of installed) {
+			const line = lineOf(name, v.version);
+			if (!out.some((p) => p.spec === line)) out.push({ spec: line, version: v.version });
+		}
+		return out;
 	});
+	const runtimesPage = $derived(resolve('/(app)/runtimes/[name]', { name }));
 
 	type Mode = 'off' | 'auto' | 'version';
 	const mode = $derived<Mode>(value === 'auto' ? 'auto' : value === 'off' ? 'off' : 'version');
@@ -52,7 +55,7 @@
 	function setMode(m: Mode) {
 		if (m === mode) return;
 		if (mode === 'version') lastSpec = value;
-		value = m === 'version' ? lastSpec || ex.line : m;
+		value = m === 'version' ? lastSpec || picks[0]?.spec || '' : m;
 	}
 	const modes: { value: Mode; label: string }[] = [
 		{ value: 'off', label: 'Off' },
@@ -74,6 +77,22 @@
 	const hint = 'text-[13px] text-muted-foreground/80';
 </script>
 
+{#snippet runtimesLink(label: string)}
+	{#if canManage}
+		<a
+			href={runtimesPage}
+			class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-[13px] font-medium transition-colors hover:bg-accent"
+		>
+			{label}
+			<ArrowRightIcon class="size-3.5" />
+		</a>
+	{:else}
+		<span class="text-xs text-muted-foreground/80"
+			>An admin can install it on the Runtimes page.</span
+		>
+	{/if}
+{/snippet}
+
 <div class="flex flex-col gap-3">
 	<div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
 		<div class="flex flex-wrap items-center gap-2">
@@ -91,7 +110,7 @@
 			{/if}
 			{#if canManage}
 				<a
-					href={resolve('/(app)/runtimes/[name]', { name })}
+					href={runtimesPage}
 					class="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
 					>Manage versions</a
 				>
@@ -135,38 +154,68 @@
 			{:else}
 				If it names none: the server's own {name}.
 			{/if}
+			That version must be installed on the Runtimes page: deployments download nothing.
 		</p>
 	{:else if mode === 'version'}
-		<div class="flex flex-col gap-2">
-			<Label for={`set-rt-${name}`} class="sr-only">{title} version</Label>
-			<div class="flex flex-wrap items-center gap-2">
-				<Input
-					id={`set-rt-${name}`}
-					bind:value
-					spellcheck={false}
-					autocomplete="off"
-					placeholder={ex.line}
-					class="h-9 w-[180px] bg-background px-3 font-mono text-[13px] md:text-[13px] dark:bg-background"
-					aria-invalid={!!error}
-				/>
-				{#each picks as v (v)}
-					<button
-						type="button"
-						class={cn(
-							'h-7 rounded-md border px-2.5 font-mono text-xs transition-colors',
-							value === v
-								? 'border-muted-foreground bg-muted text-foreground'
-								: 'border-input text-muted-foreground hover:text-foreground'
-						)}
-						onclick={() => (value = v)}>{v}</button
-					>
-				{/each}
+		{#if status && installed.length === 0}
+			<div
+				class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-md border border-dashed px-3.5 py-3"
+			>
+				<span class="text-[13px] text-muted-foreground"
+					>No {title} version is installed on this server yet.</span
+				>
+				{@render runtimesLink(`Install ${title} on the Runtimes page`)}
 			</div>
-			<p class={hint}>
-				Always on, whatever the repository says. A line such as {ex.line} takes its newest installed release;
-				{ex.exact} is exact.
-			</p>
-		</div>
+		{:else}
+			<div class="flex flex-col gap-2">
+				<Label for={`set-rt-${name}`} class="sr-only">{title} version</Label>
+				<div class="flex flex-wrap items-center gap-2">
+					<Input
+						id={`set-rt-${name}`}
+						bind:value
+						spellcheck={false}
+						autocomplete="off"
+						placeholder={picks[0]?.spec ?? ex.line}
+						class="h-9 w-[180px] bg-background px-3 font-mono text-[13px] md:text-[13px] dark:bg-background"
+						aria-invalid={!!error || missing}
+					/>
+					{#each picks as p (p.spec)}
+						<button
+							type="button"
+							title={`Takes ${title} ${p.version}`}
+							class={cn(
+								'h-7 rounded-md border px-2.5 font-mono text-xs transition-colors',
+								value === p.spec
+									? 'border-muted-foreground bg-muted text-foreground'
+									: 'border-input text-muted-foreground hover:text-foreground'
+							)}
+							onclick={() => (value = p.spec)}>{p.spec}</button
+						>
+					{/each}
+				</div>
+				<p class={hint}>
+					Always on, whatever the repository says, among the versions installed on this server. A
+					line such as {ex.line} takes its newest installed release; {ex.exact} is exact.
+					{#if canManage}Need another version?
+						<a href={runtimesPage} class="text-foreground underline-offset-2 hover:underline"
+							>Install it on the Runtimes page</a
+						>.{/if}
+				</p>
+			</div>
+		{/if}
+		{#if missing}
+			<div
+				class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-md border border-amber-500/30 bg-amber-500/[0.07] px-3.5 py-3"
+				role="alert"
+			>
+				<span class="flex items-start gap-2 text-[13px] text-amber-600 dark:text-amber-300">
+					<TriangleAlertIcon class="mt-0.5 size-3.5 shrink-0" />
+					{title}
+					{value} is not installed: deployments fail until it is.
+				</span>
+				{@render runtimesLink('Install it')}
+			</div>
+		{/if}
 	{:else}
 		<p class={hint}>
 			degoploy leaves {title} out: scripts use the server's own {name}, if there is one.

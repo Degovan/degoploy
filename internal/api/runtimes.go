@@ -294,7 +294,52 @@ func (a *API) projectRuntimes(rt map[string]store.ProjectRuntime) []ProjectRunti
 		if r.Spec == "" {
 			r.Spec = toolchain.Auto
 		}
-		out = append(out, ProjectRuntime{Name: name, Spec: r.Spec, Used: r.Used})
+		dto := ProjectRuntime{Name: name, Spec: r.Spec, Used: r.Used}
+		if m := a.runtimes.Get(name); m != nil && r.Spec != toolchain.Auto && r.Spec != toolchain.Off {
+			_, ok, err := m.Find(r.Spec)
+			dto.Missing = err == nil && !ok
+		}
+		out = append(out, dto)
 	}
 	return out
+}
+
+// runtimesInstalled refuses a version a project asks for that no installed
+// one fits: versions are installed on the Runtimes page, never by a
+// deployment. A setting the project already has passes, so a version removed
+// since does not block saving the others.
+func (a *API) runtimesInstalled(w http.ResponseWriter, r *http.Request, projectID int64, specs map[string]string) bool {
+	if len(specs) == 0 {
+		return true
+	}
+	current, err := a.store.ProjectRuntimes(r.Context(), projectID)
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return false
+	}
+	for _, name := range toolchain.Runtimes {
+		spec, ok := specs[name]
+		spec = strings.TrimSpace(spec)
+		m := a.runtimes.Get(name)
+		if !ok || m == nil || spec == current[name].Spec || !specIsVersion(spec) {
+			continue
+		}
+		// A spec that does not parse is the project validator's to report.
+		if _, found, err := m.Find(spec); err == nil && !found {
+			httpx.JSON(w, http.StatusUnprocessableEntity, httpx.ErrorBody{
+				Error: m.Title() + " " + spec + " is not installed. Install it on the Runtimes page first, then pick it here.",
+				Code:  "runtime_not_installed", Field: "runtimes." + name,
+			})
+			return false
+		}
+	}
+	return true
+}
+
+func specIsVersion(spec string) bool {
+	switch strings.ToLower(spec) {
+	case "", toolchain.Auto, toolchain.Off, "none":
+		return false
+	}
+	return true
 }

@@ -200,6 +200,9 @@ func (a *API) updateProject(w http.ResponseWriter, r *http.Request) {
 	setIf(&in.HealthURL, req.HealthURL)
 	setIf(&in.HealthTimeout, req.HealthTimeout)
 	in.Runtimes = req.Runtimes
+	if !a.runtimesInstalled(w, r, p.ID, req.Runtimes) {
+		return
+	}
 
 	before, err := a.projectDTO(r, p)
 	if err != nil {

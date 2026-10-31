@@ -73,7 +73,7 @@
 	onsave={save}
 >
 	{#snippet note()}
-		Versions are installed on the first deployment that needs them.
+		Only versions installed on the Runtimes page can be used; deployments download nothing.
 	{/snippet}
 	<div class="flex flex-col divide-y">
 		{#each project.runtimes as r (r.name)}
@@ -85,6 +85,7 @@
 						r.name}
 					bind:value={draft[r.name]!}
 					used={r.used}
+					missing={r.missing && draft[r.name] === r.spec}
 					status={runtimes.data?.find((s) => s.name === r.name)}
 					error={errors[r.name]}
 					{canManage}

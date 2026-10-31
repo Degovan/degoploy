@@ -250,16 +250,18 @@ Catatan:
 Script berjalan sebagai user `degoploy-deploy`, jadi nvm atau phpenv milik user lain tidak terbaca. degoploy
 mengelola runtime-nya sendiri, dan setiap project hanya memakai yang dibutuhkannya:
 
-- **Node.js**: versi dari `.nvmrc`, `.node-version` atau `package.json`, diunduh dari nodejs.org (dicek
-  SHA256) saat pertama kali dibutuhkan. pnpm dan yarn tersedia lewat corepack.
+- **Node.js**: versi dari `.nvmrc`, `.node-version` atau `package.json`, dipasang dari halaman Runtimes
+  dengan unduhan dari nodejs.org (dicek SHA256). pnpm dan yarn tersedia lewat corepack.
 - **PHP**: versi dari `.php-version` atau `composer.json`. PHP yang sudah terpasang di server (misalnya
   `php8.3` dari apt atau PPA ondrej) dipakai lebih dulu, karena sama dengan PHP-FPM dan ekstensinya.
-  Versi lain diunduh sebagai build statis dari static-php.dev (tanpa root, tanpa compile, dicek
-  SHA256 untuk build terbaru). Composer
+  Versi lain dipasang dari halaman Runtimes sebagai build statis dari static-php.dev (tanpa root,
+  tanpa compile, dicek SHA256 untuk build terbaru). Composer
   diunduh dari getcomposer.org (dicek SHA256).
 
 Di Project settings, setiap runtime bisa **Auto** (aktif bila repo memakainya), versi tertentu, atau
-**Off**. Kelola versinya di halaman **Runtimes** atau lewat CLI:
+**Off**. Versi hanya dipasang di halaman **Runtimes** atau lewat CLI; project memilih dari versi yang
+sudah terpasang, dan deployment tidak pernah mengunduh. Deployment yang butuh versi yang belum ada
+akan gagal dan menyebut versi yang perlu dipasang:
 
 ```bash
 degoploy php install 8.3     # node install 22, lts, 20.11.1

@@ -1,10 +1,10 @@
 // Package toolchain installs language runtimes (Node.js, PHP) for deploy
 // scripts and picks the version a project asks for, the way nvm does but
-// without a shell to source. Builds are downloaded on first use, checked
-// where their source publishes checksums, and unpacked under
-// <data_dir>/<runtime>/<version>; versions the operating system installed are
-// used as they are. The runner puts the chosen version's bin directory first
-// on PATH.
+// without a shell to source. Builds are downloaded from the Runtimes page or
+// the CLI, never by a deployment, checked where their source publishes
+// checksums, and unpacked under <data_dir>/<runtime>/<version>; versions the
+// operating system installed are used as they are. The runner puts the chosen
+// version's bin directory first on PATH.
 package toolchain
 
 import (

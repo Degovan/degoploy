@@ -12,7 +12,8 @@ script, and watch every deployment and its log live in the browser.
   other projects.
 - **Runtimes**: Node.js and PHP versions per project, read from `.nvmrc`, `.php-version` or
   `composer.json` like nvm and phpenv do. The server's own versions are used where they fit; others are
-  downloaded on first use. pnpm and yarn come through corepack, and Composer is included.
+  installed by an admin on the Runtimes page, never by a deployment. pnpm and yarn come through corepack,
+  and Composer is included.
 - **Live logs** over WebSocket, a queue per project, cancel and redeploy.
 - **Releases**: each deploy builds in its own folder, `current` switches only when the script succeeds, and a rollback is one click. An optional health check switches back on its own when the new release does not answer.
 - **Users and roles** (admin, deployer, viewer), optionally limited to selected projects, invitations by email, and an audit log.

@@ -665,6 +665,11 @@ export interface ProjectRuntime {
 	 * Used is the version the latest deployment ran with ("" if none).
 	 */
 	used: string;
+	/**
+	 * Missing: Spec names a version no installed one fits, so deployments
+	 * fail until it is installed on the Runtimes page.
+	 */
+	missing: boolean;
 }
 /**
  * RuntimeStatus is one runtime on the Runtimes page.
@@ -693,7 +698,7 @@ export interface RuntimeStatus {
 	installed: RuntimeVersion[];
 	total_size: number /* int64 */;
 	/**
-	 * Installing lists downloads in progress, started here, from the CLI or by a deployment.
+	 * Installing lists downloads in progress, started here or from the CLI.
 	 */
 	installing: RuntimeProgress[];
 }

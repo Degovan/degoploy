@@ -25,17 +25,20 @@ func TestPHPInstallAndComposer(t *testing.T) {
 	mirror := toolchaintest.NewPHPMirror(t, "8.4.23", "8.4.20!", "8.3.30", "8.2.32!")
 	m := newPHP(t, mirror, "")
 
-	if got, _, err := m.Resolve(ctx, "^8.2"); err != nil || got != v("8.4.23") {
-		t.Fatalf("Resolve(^8.2) = %v %v", got, err)
+	if got, err := m.Latest(ctx, "^8.2"); err != nil || got != v("8.4.23") {
+		t.Fatalf("Latest(^8.2) = %v %v", got, err)
 	}
-	if got, _, _ := m.Resolve(ctx, "8.3"); got != v("8.3.30") {
-		t.Fatalf("Resolve(8.3) = %v", got)
+	if got, _ := m.Latest(ctx, "8.3"); got != v("8.3.30") {
+		t.Fatalf("Latest(8.3) = %v", got)
 	}
-	if _, _, err := m.Resolve(ctx, "lts"); err == nil {
+	if _, err := m.Latest(ctx, "lts"); err == nil {
 		t.Fatal("PHP resolved lts")
 	}
 
 	var log strings.Builder
+	if err := m.Install(ctx, v("8.3.30"), &log); err != nil {
+		t.Fatalf("Install(8.3.30) = %v\n%s", err, log.String())
+	}
 	got, bin, err := m.Use(ctx, "8.3", &log)
 	if err != nil || got != v("8.3.30") {
 		t.Fatalf("Use(8.3) = %v %v\n%s", got, err, log.String())

@@ -192,53 +192,20 @@ func (m *Manager) Releases(ctx context.Context) ([]Release, error) {
 	return rel, nil
 }
 
-// Resolve turns a spec into a version. An installed version that fits wins,
-// system versions first, so deployments work offline and keep their version
-// until "update"; only when none fits is the newest fitting release looked
-// up, preferring LTS releases. installed is false when that version still has
-// to be downloaded.
-func (m *Manager) Resolve(ctx context.Context, spec string) (v Version, installed bool, err error) {
-	s, err := ParseSpec(spec)
-	if err != nil {
-		return v, false, err
+// Find picks the installed version a spec means, system versions first, and
+// reports false when none fits. It never downloads: versions are installed on
+// the Runtimes page or with the CLI, so deployments never wait for, or race
+// each other over, a download.
+func (m *Manager) Find(spec string) (Version, bool, error) {
+	if _, err := ParseSpec(spec); err != nil {
+		return Version{}, false, err
 	}
 	have, err := m.Installed()
 	if err != nil {
-		return v, false, err
+		return Version{}, false, err
 	}
-	r := s.Range
-	if s.Alias != "" {
-		rel, err := m.Releases(ctx)
-		if err != nil {
-			// Offline: the newest installed version that fits the alias.
-			for _, in := range have {
-				if s.Alias == "latest" || (in.LTS != "" && (s.Codename == "" || strings.EqualFold(in.LTS, s.Codename))) {
-					return in.Version, true, nil
-				}
-			}
-			return v, false, err
-		}
-		i := slices.IndexFunc(rel, s.alias)
-		if i < 0 {
-			return v, false, fmt.Errorf("no %s release is %s", m.Title(), spec)
-		}
-		r = majorRange(rel[i].Version.Major())
-	}
-	for _, sys := range []bool{true, false} {
-		for _, in := range have {
-			if in.System == sys && r.Match(in.Version) {
-				return in.Version, true, nil
-			}
-		}
-	}
-	rel, err := m.Releases(ctx)
-	if err != nil {
-		return v, false, err
-	}
-	if best, ok := newest(rel, r); ok {
-		return best.Version, false, nil
-	}
-	return v, false, fmt.Errorf("no %s release for %s matches %q", m.Title(), m.Platform(), spec)
+	v, ok := m.resolveInstalled(have, spec)
+	return v, ok, nil
 }
 
 // Latest is the newest release a spec matches, whatever is installed: what
@@ -294,17 +261,18 @@ func majorRange(major int) Range {
 	return Range{{{">=", Version{major, 0, 0}}, {"<", Version{major + 1, 0, 0}}}}
 }
 
-// Use resolves spec, installs that version when needed and readies it for a
-// deployment. It returns the version and the directory to put on PATH.
+// ErrNotInstalled is returned by Use when no installed version fits the spec.
+var ErrNotInstalled = errors.New("not installed")
+
+// Use picks the installed version spec means and readies it for a deployment.
+// It returns the version and the directory to put on PATH, or ErrNotInstalled.
 func (m *Manager) Use(ctx context.Context, spec string, w io.Writer) (Version, string, error) {
-	v, ok, err := m.Resolve(ctx, spec)
+	v, ok, err := m.Find(spec)
 	if err != nil {
 		return v, "", err
 	}
 	if !ok {
-		if err := m.Install(ctx, v, w); err != nil {
-			return v, "", err
-		}
+		return v, "", ErrNotInstalled
 	}
 	in, found := m.installed(v)
 	if !found {
@@ -437,14 +405,13 @@ func (m *Manager) Install(ctx context.Context, v Version, w io.Writer) (err erro
 	if err := m.kind.Finish(ctx, m, root, v, w); err != nil {
 		return err
 	}
+	// The LTS name is kept with the version: Find matches "lts" specs offline.
 	lts := ""
-	m.mu.Lock()
-	for _, r := range m.index {
-		if r.Version == v {
-			lts = r.LTS
+	if rel, err := m.Releases(ctx); err == nil {
+		if i := slices.IndexFunc(rel, func(r Release) bool { return r.Version == v }); i >= 0 {
+			lts = rel[i].LTS
 		}
 	}
-	m.mu.Unlock()
 	b, _ := json.Marshal(meta{LTS: lts, Size: dirSize(root), InstalledAt: time.Now().UTC()})
 	if err := os.WriteFile(filepath.Join(root, metaFile), b, 0o644); err != nil {
 		return err

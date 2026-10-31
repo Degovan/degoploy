@@ -297,8 +297,8 @@ func (s *Service) script(p *store.Project, dir string) (path, content string, er
 }
 
 // setupRuntimes picks the version of each runtime (Node.js, PHP) the project
-// uses, by its settings and the repository's files in dir, installs it when
-// needed, and returns the bin directories to put first on PATH and the
+// uses, by its settings and the repository's files in dir, among the installed
+// ones, and returns the bin directories to put first on PATH and the
 // environment the runtimes add.
 func (s *Service) setupRuntimes(ctx context.Context, p *store.Project, w io.Writer, dir string) (bins, env []string, err error) {
 	if s.Runtimes == nil {
@@ -337,16 +337,13 @@ func (s *Service) setupRuntimes(ctx context.Context, p *store.Project, w io.Writ
 				spec, source = def, "the default version"
 			}
 		}
-		v, installed, err := m.Resolve(ctx, spec)
+		// Deployments only use installed versions; downloads happen on the Runtimes page.
+		v, bin, err := m.Use(ctx, spec, noteWriter{w})
+		if errors.Is(err, toolchain.ErrNotInstalled) {
+			return nil, nil, fmt.Errorf("%s %s (from %s) is not installed on this server; an admin can install it on the Runtimes page", m.Title(), spec, source)
+		}
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s %s (from %s): %w", m.Title(), spec, source, err)
-		}
-		if !installed {
-			step(w, "Installing %s %s", m.Title(), m.Label(v))
-		}
-		v, bin, err := m.Use(ctx, spec, noteWriter{w})
-		if err != nil {
-			return nil, nil, fmt.Errorf("install %s %s: %w", m.Title(), m.Label(v), err)
 		}
 		label := m.Label(v)
 		where := ""

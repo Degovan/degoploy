@@ -10,14 +10,16 @@
 	// The project's runtimes beside its deploy script, linking to where they are set.
 	let { project }: { project: Project } = $props();
 
-	const detail = (name: string, spec: string, used: string) =>
-		spec === 'off'
-			? `Not managed: the server's own ${name}, if any`
-			: used
-				? `Last deployment: ${used}`
-				: spec === 'auto'
-					? 'When the repository uses it'
-					: 'Always on';
+	const detail = (name: string, spec: string, used: string, missing: boolean) =>
+		missing
+			? 'Not installed on this server: deployments fail'
+			: spec === 'off'
+				? `Not managed: the server's own ${name}, if any`
+				: used
+					? `Last deployment: ${used}`
+					: spec === 'auto'
+						? 'When the repository uses it'
+						: 'Always on';
 </script>
 
 <section class="flex flex-col gap-4 rounded-xl border bg-card p-6" aria-label="Runtimes">
@@ -35,7 +37,14 @@
 			<div class="flex items-start justify-between gap-3">
 				<div class="flex min-w-0 flex-col gap-0.5">
 					<dt class="text-[13px] font-medium">{runtimeTitles[r.name] ?? r.name}</dt>
-					<dd class="text-xs text-muted-foreground/80">{detail(r.name, r.spec, r.used)}</dd>
+					<dd
+						class={cn(
+							'text-xs',
+							r.missing ? 'text-amber-600 dark:text-amber-300' : 'text-muted-foreground/80'
+						)}
+					>
+						{detail(r.name, r.spec, r.used, r.missing)}
+					</dd>
 				</div>
 				<span
 					class={cn(

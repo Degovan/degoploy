@@ -440,10 +440,9 @@ func TestDeployRuntimes(t *testing.T) {
 	)
 	phpMirror := toolchaintest.NewPHPMirror(t, "8.4.23", "8.3.30")
 	data := filepath.Join(f.root, "data")
-	f.svc.Runtimes = toolchain.NewSetOf(
-		toolchain.New(toolchain.NodeJS{}, filepath.Join(data, "node"), nodeMirror.URL),
-		toolchain.New(&toolchain.PHP{ComposerURL: phpMirror.URL + "/composer.phar"}, filepath.Join(data, "php"), phpMirror.URL),
-	)
+	node := toolchain.New(toolchain.NodeJS{}, filepath.Join(data, "node"), nodeMirror.URL)
+	php := toolchain.New(&toolchain.PHP{ComposerURL: phpMirror.URL + "/composer.phar"}, filepath.Join(data, "php"), phpMirror.URL)
+	f.svc.Runtimes = toolchain.NewSetOf(node, php)
 	ctx := context.Background()
 	script := `echo "node=$(node 2>/dev/null) npm=$(npm 2>/dev/null) php=$(php -n -r 'echo PHP_VERSION;' 2>/dev/null) composer=$(command -v composer >/dev/null && echo yes)" > runtimes.txt`
 	got := func(p *store.Project) string {
@@ -458,16 +457,33 @@ func TestDeployRuntimes(t *testing.T) {
 		t.Fatalf("a runtime was set up for a bare repository:\n%s", log)
 	}
 
-	// .nvmrc and composer.json pick the versions, installed on first use.
+	// .nvmrc and composer.json pick versions, but a deployment downloads
+	// nothing: one that is not installed fails it and points at Runtimes.
 	f.commit(".nvmrc", "lts/iron\n", "pin node")
 	f.commit("composer.json", `{"require":{"php":"~8.3.0"}}`, "add composer.json")
+	d = f.wait(f.enqueue(p, nil).ID, store.DeploySuccess, store.DeployFailed)
+	if d.Status != store.DeployFailed || d.Error != "Node.js lts/iron (from .nvmrc) is not installed on this server; an admin can install it on the Runtimes page" ||
+		nodeMirror.Downloads.Load() != 0 || phpMirror.Downloads.Load() != 0 {
+		t.Fatalf("status %s, error %q, downloads %d %d", d.Status, d.Error, nodeMirror.Downloads.Load(), phpMirror.Downloads.Load())
+	}
+
+	// Installed (as the Runtimes page does), they are used.
+	for _, in := range []struct {
+		m *toolchain.Manager
+		v string
+	}{{node, "20.19.0"}, {node, "22.12.0"}, {php, "8.3.30"}} {
+		v, _ := toolchain.ParseVersion(in.v)
+		if err := in.m.Install(ctx, v, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
 	d = f.wait(f.enqueue(p, nil).ID, store.DeploySuccess, store.DeployFailed)
 	log := readLog(t, d)
 	if d.Status != store.DeploySuccess || got(p) != "node=v20.19.0 npm=npm php=8.3.30 composer=yes\n" {
 		t.Fatalf("status %s, runtimes.txt %q\n%s", d.Status, got(p), log)
 	}
-	for _, want := range []string{"Installing Node.js v20.19.0", "node: v20.19.0 (lts/iron from .nvmrc)",
-		"Installing PHP 8.3.30", "php: 8.3.30 (~8.3.0 from composer.json require.php)", "Composer installed"} {
+	for _, want := range []string{"node: v20.19.0 (lts/iron from .nvmrc)",
+		"php: 8.3.30 (~8.3.0 from composer.json require.php)", "Composer installed"} {
 		if !strings.Contains(log, want) {
 			t.Fatalf("log lacks %q:\n%s", want, log)
 		}
@@ -479,7 +495,7 @@ func TestDeployRuntimes(t *testing.T) {
 
 	// The next deployment reuses both.
 	d = f.wait(f.enqueue(p, nil).ID, store.DeploySuccess, store.DeployFailed)
-	if log := readLog(t, d); strings.Contains(log, "Installing") || nodeMirror.Downloads.Load() != 1 || phpMirror.Downloads.Load() != 1 {
+	if log := readLog(t, d); strings.Contains(log, "Installing") || nodeMirror.Downloads.Load() != 2 || phpMirror.Downloads.Load() != 1 {
 		t.Fatalf("installed again:\n%s", log)
 	}
 
@@ -501,10 +517,10 @@ func TestDeployRuntimes(t *testing.T) {
 	}
 	f.store.SetSetting(ctx, store.SettingRuntimeEnabled("node"), "")
 
-	// A version that does not exist fails the deployment with a clear reason.
+	// A version that is not installed fails the deployment with a clear reason.
 	f.store.SetProjectRuntime(ctx, p.ID, "node", "19")
 	d = f.wait(f.enqueue(p, nil).ID, store.DeploySuccess, store.DeployFailed)
-	if d.Status != store.DeployFailed || !strings.Contains(d.Error, "Node.js 19 (from project settings)") {
+	if d.Status != store.DeployFailed || !strings.Contains(d.Error, "Node.js 19 (from project settings) is not installed") {
 		t.Fatalf("status %s error %q", d.Status, d.Error)
 	}
 }

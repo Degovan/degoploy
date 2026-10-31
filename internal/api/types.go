@@ -573,6 +573,9 @@ type ProjectRuntime struct {
 	Spec string `json:"spec"`
 	// Used is the version the latest deployment ran with ("" if none).
 	Used string `json:"used"`
+	// Missing: Spec names a version no installed one fits, so deployments
+	// fail until it is installed on the Runtimes page.
+	Missing bool `json:"missing"`
 }
 
 // RuntimeStatus is one runtime on the Runtimes page.
@@ -591,7 +594,7 @@ type RuntimeStatus struct {
 	Default   string           `json:"default"`
 	Installed []RuntimeVersion `json:"installed"`
 	TotalSize int64            `json:"total_size"`
-	// Installing lists downloads in progress, started here, from the CLI or by a deployment.
+	// Installing lists downloads in progress, started here or from the CLI.
 	Installing []RuntimeProgress `json:"installing"`
 }
 

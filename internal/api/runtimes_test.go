@@ -6,6 +6,7 @@ import (
 
 	"github.com/degovan/degoploy/internal/api"
 	"github.com/degovan/degoploy/internal/config"
+	"github.com/degovan/degoploy/internal/httpx"
 	"github.com/degovan/degoploy/internal/store"
 	"github.com/degovan/degoploy/internal/toolchain/toolchaintest"
 )
@@ -76,7 +77,12 @@ func TestRuntimes(t *testing.T) {
 	if code := admin.do("PATCH", base, `{"runtimes":{"ruby":"3"}}`, nil); code != 422 {
 		t.Fatalf("unknown runtime: %d", code)
 	}
-	if code := admin.do("PATCH", base, `{"runtimes":{"node":"22.11.0","php":"off"}}`, &p); code != 200 || p.Runtimes[0].Spec != "22.11.0" || p.Runtimes[1].Spec != "off" {
+	// Only installed versions can be picked: installing is the Runtimes page's job.
+	var verr httpx.ErrorBody
+	if code := admin.do("PATCH", base, `{"runtimes":{"node":"20"}}`, &verr); code != 422 || verr.Field != "runtimes.node" || verr.Code != "runtime_not_installed" {
+		t.Fatalf("uninstalled version: %d %+v", code, verr)
+	}
+	if code := admin.do("PATCH", base, `{"runtimes":{"node":"22.11.0","php":"off"}}`, &p); code != 200 || p.Runtimes[0].Spec != "22.11.0" || p.Runtimes[1].Spec != "off" || p.Runtimes[0].Missing {
 		t.Fatalf("pin: %d %+v", code, p)
 	}
 	var up api.RuntimeUpdateResult
@@ -95,6 +101,10 @@ func TestRuntimes(t *testing.T) {
 	}
 	if code := admin.do("DELETE", "/api/v1/runtimes/node/versions/v22.11.0", "", nil); code != 404 {
 		t.Fatalf("remove again: %d", code)
+	}
+	// The project's pin is now missing, yet its other settings still save.
+	if code := admin.do("PATCH", base, `{"runtimes":{"node":"22.11.0","php":"auto"}}`, &p); code != 200 || !p.Runtimes[0].Missing {
+		t.Fatalf("missing pin: %d %+v", code, p.Runtimes)
 	}
 
 	var entries struct {

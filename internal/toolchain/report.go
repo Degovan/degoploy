@@ -20,7 +20,7 @@ type Report struct {
 	Default   string          `json:"default"` // spec, "" when none is set
 	Installed []ReportVersion `json:"installed"`
 	TotalSize int64           `json:"total_size"`
-	// Installing lists downloads in progress, from the page, the CLI or a deployment.
+	// Installing lists downloads in progress, from the page or the CLI.
 	Installing []ReportProgress `json:"installing"`
 }
 

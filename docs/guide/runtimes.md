@@ -1,6 +1,6 @@
 ---
 title: Runtimes (Node.js and PHP)
-updated: 2026-10-29
+updated: 2026-10-31
 ---
 
 # Runtimes (Node.js and PHP)
@@ -9,6 +9,9 @@ degoploy installs the Node.js and PHP versions each project needs, the way nvm a
 
 Each runtime is separate: a project turns on only the ones it uses, so a Laravel API without a frontend never gets Node.js, and a React site never gets PHP. Admins manage each runtime's versions on its own page under **Runtimes**.
 
+> [!IMPORTANT]
+> Versions are installed **only** on the [Runtimes page](#the-runtimes-page) or with the [CLI](#from-the-command-line). Projects pick among the installed versions, and deployments never download one: a deployment that needs a version the server does not have fails and says which one to install. Two projects or deployments therefore never wait for, or race over, the same download.
+
 ## Choose the runtimes for a project
 
 Open the project's **Settings** and find the **Runtimes** card. Each runtime has three modes; click **Save** when done.
@@ -16,10 +19,12 @@ Open the project's **Settings** and find the **Runtimes** card. Each runtime has
 | Mode | What the script gets |
 |---|---|
 | **Auto** (default) | The runtime only when the repository uses it, with the version it names. Without a named version, the [default version](#the-default-version). |
-| **Version** | Always this version, such as `22` or `8.3`, an exact one such as `20.11.1`, or a range such as `>=20`. |
+| **Version** | Always this version, picked among the installed ones: a line such as `22` or `8.3` (its newest installed release), an exact one such as `20.11.1`, or a range such as `>=20`. |
 | **Off** | Nothing from degoploy: scripts use whatever the server has. |
 
 Next to each runtime, the card shows which version the latest deployment ran with.
+
+In **Version** mode the quick picks are the lines installed on this server. A version that is not installed cannot be saved: the card says so and links to the runtime's page, where you install it first. With no version installed yet, the card shows only that link. If a version a project already uses is removed later, the card and the project's script page mark it **Not installed** until it is installed again or another one is picked.
 
 **What Auto reads from the repository**, in this order:
 
@@ -47,20 +52,20 @@ flowchart TB
     D -- no --> S([Server's own])
     B -- Version --> E
     B -- Off --> N
-    E --> F{{Installed already?}}
+    E --> F{{Installed?}}
     F -- yes --> G([Run the script])
-    F -- no --> H[Download] --> G
+    F -- no --> H([Deployment fails:<br/>install it on Runtimes])
     class A start
     class G ok
+    class H bad
     class N muted
     class S muted
 ```
 
-- A version that is **already installed** wins when it fits, so `22` uses the newest installed 22.x and does not download a newer patch on its own; use **Update all** for that. A version the **system** installed (see below) wins over one degoploy downloaded.
-- When nothing installed fits, degoploy downloads the newest matching release. For Node.js it prefers LTS releases, so a range like `>=18` installs the newest LTS line rather than a brand-new current release.
-- The deployment log shows the download under **Installing Node.js** or **Installing PHP**, with its progress every 10%, followed by a line that names the version and where it came from, such as `php: 8.3.14 (^8.2 from composer.json require.php)`.
+- Only **installed** versions are used. `22` takes the newest installed 22.x and never a newer patch on its own; use **Update all** on the Runtimes page for that. A version the **system** installed (see below) wins over one degoploy downloaded. `lts` and `lts/iron` match installed LTS versions.
+- The deployment log names the version and where the spec came from, such as `php: 8.3.14 (^8.2 from composer.json require.php)`.
 
-If no release matches, for example a typo such as `2.2` in `.nvmrc`, the deployment fails with the reason in its summary.
+If no installed version fits, for example when `.nvmrc` asks for `lts/iron` and no Node.js 20 is installed, or for a typo such as `2.2`, the deployment fails before the script runs: *Node.js lts/iron (from .nvmrc) is not installed on this server; an admin can install it on the Runtimes page*. Install it there and redeploy.
 
 ## Node.js
 
@@ -72,7 +77,7 @@ If no release matches, for example a typo such as `2.2` in `.nvmrc`, the deploym
 ## PHP
 
 - **System versions come first.** PHP that the server already has, such as `php8.2` and `php8.3` from apt or ondrej's PPA, is listed as **System** and used as it is. These match the server's PHP-FPM and its extensions, which is what you want when the script runs `composer install` and `artisan migrate` for the site that FPM serves. degoploy never removes or updates them; use the system's package manager for that.
-- **Other versions are downloaded** as ready-made static builds from static-php.dev, for PHP 8.2 to 8.5. They need no root and no compiling, and include a broad set of extensions: `bcmath`, `curl`, `gd`, `imagick`, `intl`, `mbstring`, `mysqli`, `pdo_mysql`, `pgsql`, `redis`, `sodium`, `zip` and more. Extensions outside that set cannot be added; install that PHP version on the system instead.
+- **Other versions are downloaded** on the Runtimes page as ready-made static builds from static-php.dev, for PHP 8.2 to 8.5. They need no root and no compiling, and include a broad set of extensions: `bcmath`, `curl`, `gd`, `imagick`, `intl`, `mbstring`, `mysqli`, `pdo_mysql`, `pgsql`, `redis`, `sodium`, `zip` and more. Extensions outside that set cannot be added; install that PHP version on the system instead.
 - static-php.dev publishes a SHA256 for its recent builds, which degoploy checks. Every download is also run once: it must start and report the expected version. Older patch builds have no published SHA256 and get only that second check.
 - **Composer** is downloaded once from getcomposer.org, checked against its published SHA256, and available as `composer` with whichever PHP version the project uses.
 
@@ -86,9 +91,9 @@ Admins open **Runtimes** in the top navigation. The menu on the left lists the r
 - The **On/Off** switch turns a runtime off for every project on this server, whatever their settings say.
 - The list shows each version, which projects deployed with it, and its size or, for system versions, where it lives.
 - **Make default** sets that version's line, such as `22` or `8.3`, as the default.
-- The **trash** button removes a downloaded version. A project that still asks for it installs it again on its next deployment. System versions have none.
+- The **trash** button removes a downloaded version. A project that still asks for it fails its next deployment until the version is installed again. System versions have none.
 - **Update all** installs the latest patch of every downloaded line and removes the older one, for example 8.3.12 → 8.3.14. A version that a project asks for exactly is kept.
-- **Install a version** offers the newest lines, or any version you type. A download shows its progress and can be **canceled**, wherever it was started; a deployment that was waiting for it then fails.
+- **Install a version** offers the newest lines, or any version you type. A download shows its progress and can be **canceled**, from the page or the CLI.
 
 ### The default version
 
