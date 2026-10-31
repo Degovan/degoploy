@@ -16,6 +16,14 @@ class Session {
 		return this.me?.permissions.includes(action) ?? false;
 	}
 
+	/**
+	 * Whether the user may do action on a project. Deploying depends on the
+	 * project for users who see selected projects; editing stays with admins.
+	 */
+	canOn(project: { permissions: Action[] } | null | undefined, action: Action): boolean {
+		return project?.permissions.includes(action) ?? false;
+	}
+
 	set(me: Me | null) {
 		this.me = me;
 		this.loaded = true;

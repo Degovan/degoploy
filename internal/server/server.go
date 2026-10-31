@@ -68,7 +68,7 @@ func New(cfg *config.Config, st *store.Store, box *secrets.Box, version string) 
 		Config:   cfg,
 		Store:    st,
 		Sessions: sessions,
-		Authz:    &auth.Authorizer{},
+		Authz:    &auth.Authorizer{ProjectRoles: st.ProjectMemberRole},
 		Audit:    auditLog,
 		Projects: projects,
 		Deploys:  deploys,

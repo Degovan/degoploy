@@ -42,6 +42,9 @@ type User struct {
 	Disabled     bool
 	// MustChangePassword blocks everything but a password change until cleared.
 	MustChangePassword bool
+	// SelectedProjects limits a deployer or viewer to the projects in
+	// project_members, with the role given there. Admins ignore it.
+	SelectedProjects bool
 	LastLoginAt        *time.Time
 	CreatedAt          time.Time
 }
@@ -51,14 +54,14 @@ var ErrDuplicate = errors.New("already exists")
 
 const userCols = `id, username, email, display_name, auth_provider,
 	COALESCE(oidc_issuer, ''), COALESCE(oidc_subject, ''), COALESCE(password_hash, ''),
-	role, disabled, must_change_password, last_login_at, created_at`
+	role, disabled, must_change_password, selected_projects, last_login_at, created_at`
 
 func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 	var u User
 	var last sql.NullTime
 	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.DisplayName, &u.AuthProvider,
 		&u.OIDCIssuer, &u.OIDCSubject, &u.PasswordHash,
-		&u.Role, &u.Disabled, &u.MustChangePassword, &last, &u.CreatedAt)
+		&u.Role, &u.Disabled, &u.MustChangePassword, &u.SelectedProjects, &last, &u.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}

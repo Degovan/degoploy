@@ -60,7 +60,9 @@
 			{ label: 'Runtimes', href: resolve('/(app)/runtimes'), requires: 'user.manage' }
 		];
 	});
-	const visibleTabs = $derived(tabs.filter((t) => !t.requires || session.can(t.requires)));
+	// A project's tabs follow what the user may do on that project.
+	const allowed = (a: Action) => (projectId !== null ? session.canOn(current, a) : session.can(a));
+	const visibleTabs = $derived(tabs.filter((t) => !t.requires || allowed(t.requires)));
 
 	function isActive(t: Tab) {
 		const path = page.url.pathname;

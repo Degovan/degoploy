@@ -56,13 +56,14 @@ var globalOnly = map[Action]bool{
 	ActionProjectCreate: true, ActionUserManage: true, ActionAuditView: true,
 }
 
-// ProjectRoleLookup returns a user's role override for one project, if any.
+// ProjectRoleLookup returns a user's role on one project, if they are a member.
 type ProjectRoleLookup func(ctx context.Context, projectID, userID int64) (store.Role, bool, error)
 
 // Authorizer answers "may this user do X (on project P)?".
 //
-// Only global roles are evaluated today. When ProjectRoles is set, a membership
-// row in project_members overrides the global role for that project.
+// Admins, and users without SelectedProjects, act with their global role on
+// every project. A user with SelectedProjects acts on a project only with the
+// role their membership in project_members gives them, through ProjectRoles.
 type Authorizer struct {
 	ProjectRoles ProjectRoleLookup
 }
@@ -73,17 +74,37 @@ func (a *Authorizer) Can(ctx context.Context, u *store.User, action Action, proj
 		return false
 	}
 	role := u.Role
-	if projectID != 0 && a.ProjectRoles != nil && !globalOnly[action] {
+	if projectID != 0 && !globalOnly[action] && Selected(u) {
+		if a.ProjectRoles == nil {
+			return false
+		}
 		r, ok, err := a.ProjectRoles(ctx, projectID, u.ID)
 		if err != nil {
 			slog.Error("project role lookup", "project", projectID, "user", u.ID, "err", err)
 			return false
 		}
-		if ok {
-			role = r
+		if !ok {
+			return false
 		}
+		role = r
 	}
 	return rolePerms[role][action]
+}
+
+// Selected reports whether u sees only the projects they are a member of.
+func Selected(u *store.User) bool {
+	return u.SelectedProjects && u.Role != store.RoleAdmin
+}
+
+// ProjectPermissions lists the project-scoped actions u may perform on a project.
+func (a *Authorizer) ProjectPermissions(ctx context.Context, u *store.User, projectID int64) []Action {
+	out := []Action{}
+	for _, act := range AllActions {
+		if !globalOnly[act] && a.Can(ctx, u, act, projectID) {
+			out = append(out, act)
+		}
+	}
+	return out
 }
 
 // Permissions lists the global actions u may perform.

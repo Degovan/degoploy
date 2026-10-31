@@ -120,6 +120,10 @@
 			body.role = v.role;
 			body.disabled = v.disabled;
 		}
+		if (v.role !== 'admin') {
+			body.selected_projects = v.selected_projects;
+			if (v.selected_projects) body.projects = v.projects;
+		}
 		await usersApi.update(u.id, body);
 		toast.success(`Saved ${u.username}`);
 		// Keep the header's name/email in sync when editing yourself.
@@ -418,7 +422,15 @@
 									<div
 										class="col-span-full flex flex-wrap items-center gap-x-4 gap-y-2 pl-11 md:contents"
 									>
-										<div class={cn(dim)}>{@render roleTag(u.role)}</div>
+										<div class={cn('flex flex-col items-start gap-[3px]', dim)}>
+											{@render roleTag(u.role)}
+											{#if u.selected_projects}
+												<span class="text-xs text-muted-foreground/80">
+													{u.projects.length}
+													{u.projects.length === 1 ? 'project' : 'projects'}
+												</span>
+											{/if}
+										</div>
 										<span
 											class={cn(
 												'flex min-w-0 items-center gap-2 text-[13px] text-muted-foreground',

@@ -87,7 +87,7 @@
 								class="shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400"
 								>Live</span
 							>
-						{:else if session.can('project.deploy')}
+						{:else if session.canOn(p, 'project.deploy')}
 							<ConfirmButton
 								size="sm"
 								title={`Switch to release #${r.id}?`}

@@ -92,7 +92,7 @@
 				<ScrollTextIcon />
 				Build logs
 			</Button>
-			{#if session.can('project.deploy') && d.ref && !isActive(d)}
+			{#if session.canOn(p, 'project.deploy') && d.ref && !isActive(d)}
 				<Button variant="outline" size="sm" onclick={redeploy} disabled={redeploying}>
 					{#if redeploying}<LoaderIcon class="animate-spin" />{:else}<RotateCcwIcon />{/if}
 					Redeploy

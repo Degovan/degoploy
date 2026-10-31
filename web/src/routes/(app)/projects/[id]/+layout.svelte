@@ -128,7 +128,7 @@
 						Repository
 					</Button>
 				{/if}
-				{#if session.can('project.deploy')}
+				{#if session.canOn(p, 'project.deploy')}
 					<DeployButton projectId={p.id} />
 				{/if}
 			</div>

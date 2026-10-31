@@ -1,17 +1,20 @@
 <script lang="ts" module>
-	import type { Role } from '#lib/api/types.gen.js';
+	import type { ProjectAccess, Role } from '#lib/api/types.gen.js';
 
 	export type UserFormValues = {
 		display_name: string;
 		email: string;
 		role: Role;
 		disabled: boolean;
+		selected_projects: boolean;
+		projects: ProjectAccess[];
 	};
 </script>
 
 <script lang="ts">
 	import { ApiError, errorMessage } from '#lib/api/client.js';
 	import type { User } from '#lib/api/types.gen.js';
+	import ProjectAccessPicker from '#lib/components/project-access.svelte';
 	import RolePicker from '#lib/components/role-picker.svelte';
 	import UserAvatar from '#lib/components/user-avatar.svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
@@ -41,7 +44,14 @@
 		ondelete: (user: User) => void;
 	} = $props();
 
-	let v = $state<UserFormValues>({ display_name: '', email: '', role: 'viewer', disabled: false });
+	let v = $state<UserFormValues>({
+		display_name: '',
+		email: '',
+		role: 'viewer',
+		disabled: false,
+		selected_projects: false,
+		projects: []
+	});
 	let errors = $state<Record<string, string>>({});
 	let formError = $state('');
 	let saving = $state(false);
@@ -53,7 +63,9 @@
 			display_name: user.display_name,
 			email: user.email,
 			role: user.role,
-			disabled: user.disabled
+			disabled: user.disabled,
+			selected_projects: user.selected_projects,
+			projects: user.projects.map((p) => ({ ...p }))
 		};
 		errors = {};
 		formError = '';
@@ -157,6 +169,20 @@
 						</div>
 						<RolePicker bind:value={v.role} disabled={isSelf} labelledby="user-role" />
 						{@render fieldError('role')}
+					</div>
+
+					<div class="flex flex-col gap-2">
+						<span class={label}>Project access</span>
+						{#if v.role === 'admin'}
+							<p class="text-xs/normal text-muted-foreground/80">Admins see every project.</p>
+						{:else}
+							<ProjectAccessPicker
+								bind:selected={v.selected_projects}
+								bind:projects={v.projects}
+								defaultRole={v.role}
+								error={errors.projects || errors.selected_projects}
+							/>
+						{/if}
 					</div>
 
 					{#if !isSelf}

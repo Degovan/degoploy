@@ -37,7 +37,7 @@
 	const script = createQuery(() => ({
 		queryKey: projectKeys.script(data.id),
 		queryFn: () => projectsApi.script(data.id),
-		enabled: session.can('project.deploy')
+		enabled: session.canOn(project.data, 'project.deploy')
 	}));
 	const revisions = createQuery(() => ({
 		queryKey: projectKeys.revisions(data.id),

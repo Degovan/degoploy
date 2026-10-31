@@ -115,7 +115,7 @@ users (
   disabled BOOLEAN, last_login_at, created_at
 )
 
-project_members (project_id, user_id, role)   -- disiapkan untuk akses per project
+project_members (project_id, user_id, role)   -- akses per project untuk user dengan selected_projects
 
 sessions (id_hash, user_id, csrf_token, expires_at, created_at, user_agent, ip)
 
@@ -189,7 +189,8 @@ GIT_SSH_COMMAND="ssh -i <key> -o IdentitiesOnly=yes \
 | Kelola user & role, audit log | ✅ | ❌ | ❌ |
 
 - Semua pengecekan lewat satu fungsi `rbac.Can(user, action, projectID)`.
-  Saat ini hanya role global yang dievaluasi; nanti `project_members` meng-override tanpa refactor.
+  User dengan `selected_projects` (deployer/viewer) hanya melihat project di `project_members`, dengan role
+  deployer atau viewer per project; admin dan user lain memakai role global di semua project.
 
 ### Session
 
@@ -466,7 +467,6 @@ degoploy/
 
 ## 16. Rencana Lanjutan (opsional)
 
-- Akses per project (`project_members`) aktif
 - Notifikasi Telegram / Discord / Slack
 - Multi environment per project, rollback ke commit sebelumnya
 - Dukungan GitLab, trigger dari event release

@@ -15,6 +15,18 @@ type User struct {
 	MustChangePassword bool    `json:"must_change_password"`
 	LastLoginAt        *string `json:"last_login_at" tstype:"string | null,required"`
 	CreatedAt          string  `json:"created_at"`
+	// SelectedProjects: a deployer or viewer who sees only Projects, each with
+	// its own role. False for admins and for users who see every project.
+	SelectedProjects bool `json:"selected_projects"`
+	// Projects lists the user's projects when SelectedProjects is set; it is
+	// only filled in by the Users endpoints.
+	Projects []ProjectAccess `json:"projects"`
+}
+
+// ProjectAccess is a user's role on one project.
+type ProjectAccess struct {
+	ProjectID int64  `json:"project_id"`
+	Role      string `json:"role" tstype:"ProjectRole"`
 }
 
 type OIDCProvider struct {
@@ -76,6 +88,8 @@ type Project struct {
 	LastDeployment *Deployment `json:"last_deployment" tstype:"Deployment | null,required"`
 	// Health covers the last finished deployments; null when there are none.
 	Health *ProjectHealth `json:"health" tstype:"ProjectHealth | null,required"`
+	// Permissions are what the signed-in user may do on this project.
+	Permissions []string `json:"permissions" tstype:"Action[]"`
 }
 
 // ProjectHealth: Passed of the last Total successful or failed deployments succeeded.
@@ -469,6 +483,10 @@ type UpdateUserRequest struct {
 	DisplayName *string `json:"display_name,omitempty"`
 	Role        *string `json:"role,omitempty" tstype:"Role"`
 	Disabled    *bool   `json:"disabled,omitempty"`
+	// SelectedProjects limits a deployer or viewer to Projects, which replaces
+	// their memberships. Admins always see every project.
+	SelectedProjects *bool          `json:"selected_projects,omitempty"`
+	Projects         []ProjectAccess `json:"projects,omitempty"`
 }
 
 // SSOLogin is one recent SSO sign-in attempt, kept in memory for the admin debug page.

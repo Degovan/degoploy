@@ -73,7 +73,13 @@ func (a *API) recentDeployments(w http.ResponseWriter, r *http.Request) {
 		limit = 10
 	}
 	// ?status=active lists only queued and running deployments.
-	deps, err := a.store.RecentDeployments(r.Context(), limit, r.URL.Query().Get("status") == "active")
+	// A user who sees selected projects gets a full page of theirs, not what is
+	// left of everyone's newest.
+	var memberOf int64
+	if auth.Selected(ident.User) {
+		memberOf = ident.User.ID
+	}
+	deps, err := a.store.RecentDeployments(r.Context(), limit, r.URL.Query().Get("status") == "active", memberOf)
 	if err != nil {
 		httpx.InternalError(w, r, err)
 		return

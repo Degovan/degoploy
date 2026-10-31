@@ -15,7 +15,7 @@ script, and watch every deployment and its log live in the browser.
   downloaded on first use. pnpm and yarn come through corepack, and Composer is included.
 - **Live logs** over WebSocket, a queue per project, cancel and redeploy.
 - **Releases**: each deploy builds in its own folder, `current` switches only when the script succeeds, and a rollback is one click.
-- **Users and roles** (admin, deployer, viewer), invitations by email, and an audit log.
+- **Users and roles** (admin, deployer, viewer), optionally limited to selected projects, invitations by email, and an audit log.
 - **Single sign-on** with any OIDC provider (tested with Casdoor), with groups mapped to roles.
 - **A CLI** that installs, updates and manages degoploy on the server without `sudo`.
 

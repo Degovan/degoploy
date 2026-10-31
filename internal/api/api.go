@@ -148,6 +148,8 @@ func toUser(u *store.User) User {
 		Disabled:           u.Disabled,
 		MustChangePassword: u.MustChangePassword,
 		CreatedAt:          u.CreatedAt.UTC().Format(time.RFC3339),
+		SelectedProjects:   auth.Selected(u),
+		Projects:           []ProjectAccess{},
 	}
 	if u.LastLoginAt != nil {
 		s := u.LastLoginAt.UTC().Format(time.RFC3339)

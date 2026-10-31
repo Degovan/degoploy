@@ -7,6 +7,7 @@ packages:
     # Keep these unions in sync with store.Role, auth.Action and the project validators.
     frontmatter: |
       export type Role = 'admin' | 'deployer' | 'viewer';
+      export type ProjectRole = 'deployer' | 'viewer';
       export type Provider = 'github' | 'gitea';
       export type ScriptSource = 'managed' | 'repo';
       export type TriggerEvent = 'push' | 'tag';

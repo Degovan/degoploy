@@ -100,7 +100,7 @@
 
 <PageHeader
 	title="Roles"
-	description="Built-in roles that decide what each user can do, across every project."
+	description="Built-in roles that decide what each user can do, across every project or the ones picked for them."
 >
 	{#snippet aside()}
 		<span

@@ -250,10 +250,13 @@ func (s *Store) LatestDeployments(ctx context.Context) (map[int64]*DeploymentVie
 }
 
 // RecentDeployments returns the newest deployments across all projects; with
-// activeOnly, only queued and running ones.
-func (s *Store) RecentDeployments(ctx context.Context, limit int, activeOnly bool) ([]*DeploymentView, error) {
+// activeOnly, only queued and running ones. memberOf, when not 0, keeps the
+// projects that user is a member of.
+func (s *Store) RecentDeployments(ctx context.Context, limit int, activeOnly bool, memberOf int64) ([]*DeploymentView, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+deploymentViewCols+deploymentViewFrom+`
-		WHERE (? = 0 OR d.status IN (?, ?)) ORDER BY d.id DESC LIMIT ?`, activeOnly, DeployQueued, DeployRunning, limit)
+		WHERE (? = 0 OR d.status IN (?, ?))
+		AND (? = 0 OR d.project_id IN (SELECT project_id FROM project_members WHERE user_id = ?))
+		ORDER BY d.id DESC LIMIT ?`, activeOnly, DeployQueued, DeployRunning, memberOf, memberOf, limit)
 	if err != nil {
 		return nil, err
 	}

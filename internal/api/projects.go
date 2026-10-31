@@ -109,6 +109,7 @@ func (a *API) listProjects(w http.ResponseWriter, r *http.Request) {
 				dto.LastDeployment = &dd
 			}
 			dto.Health = toHealth(health, p.ID)
+			dto.Permissions = a.projectPermissions(r, p.ID)
 			out = append(out, dto)
 		}
 	}
@@ -369,8 +370,9 @@ func toProject(p *store.Project) Project {
 		WorkDir: p.WorkDir, ScriptSource: p.ScriptSource, ScriptPath: p.ScriptPath,
 		AutoPull: p.AutoPull, TimeoutSec: p.TimeoutSec, Enabled: p.Enabled,
 		Releases: p.Releases, KeepReleases: p.KeepReleases, SharedPaths: p.SharedPaths, AfterActivate: p.AfterActivate,
-		CreatedAt: p.CreatedAt.UTC().Format(time.RFC3339),
-		UpdatedAt: p.UpdatedAt.UTC().Format(time.RFC3339),
+		CreatedAt:   p.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:   p.UpdatedAt.UTC().Format(time.RFC3339),
+		Permissions: []string{},
 	}
 	if p.Releases {
 		if id := release.Live(p.WorkDir); id != 0 {
@@ -380,7 +382,8 @@ func toProject(p *store.Project) Project {
 	return out
 }
 
-// projectDTO is toProject with the project's runtime settings.
+// projectDTO is toProject with the project's runtime settings and what the
+// signed-in user may do on it.
 func (a *API) projectDTO(r *http.Request, p *store.Project) (Project, error) {
 	rt, err := a.store.ProjectRuntimes(r.Context(), p.ID)
 	if err != nil {
@@ -388,7 +391,16 @@ func (a *API) projectDTO(r *http.Request, p *store.Project) (Project, error) {
 	}
 	dto := toProject(p)
 	dto.Runtimes = a.projectRuntimes(rt)
+	dto.Permissions = a.projectPermissions(r, p.ID)
 	return dto, nil
+}
+
+func (a *API) projectPermissions(r *http.Request, projectID int64) []string {
+	out := []string{}
+	for _, act := range a.authz.ProjectPermissions(r.Context(), auth.FromContext(r.Context()).User, projectID) {
+		out = append(out, string(act))
+	}
+	return out
 }
 
 // diffProjects lists changed fields as {field: [old, new]} for the audit log.

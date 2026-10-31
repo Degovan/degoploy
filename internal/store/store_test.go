@@ -79,11 +79,11 @@ func TestDeploymentHealth(t *testing.T) {
 	if err := s.CreateDeployment(ctx, queued); err != nil {
 		t.Fatal(err)
 	}
-	active, err := s.RecentDeployments(ctx, 10, true)
+	active, err := s.RecentDeployments(ctx, 10, true, 0)
 	if err != nil || len(active) != 1 || active[0].ID != queued.ID || active[0].AutoPull != nil {
 		t.Fatalf("active = %+v, err %v", active, err)
 	}
-	if recent, _ := s.RecentDeployments(ctx, 10, false); len(recent) != 7 || recent[1].AutoPull == nil || !*recent[1].AutoPull {
+	if recent, _ := s.RecentDeployments(ctx, 10, false, 0); len(recent) != 7 || recent[1].AutoPull == nil || !*recent[1].AutoPull {
 		t.Fatalf("recent = %d deployments, auto_pull %v", len(recent), recent[1].AutoPull)
 	}
 }
@@ -285,5 +285,64 @@ func TestReleasesMigrationKeepsDeliveries(t *testing.T) {
 	s.db.QueryRow(`SELECT deployment_id FROM webhook_events WHERE id = 3`).Scan(&link)
 	if link.Valid {
 		t.Fatal("deleting the deployment must clear the delivery's link")
+	}
+}
+
+func TestProjectMembers(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "a.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	u := &User{Username: "budi", AuthProvider: ProviderLocal, Role: RoleDeployer, PasswordHash: "x"}
+	if err := s.CreateUser(ctx, u); err != nil {
+		t.Fatal(err)
+	}
+	var ids []int64
+	for _, slug := range []string{"web", "api"} {
+		p := &Project{PublicID: slug, Slug: slug, Name: slug, Provider: "github", RepoURL: "git@x:a/b.git",
+			WorkDir: "/srv/" + slug, ScriptSource: ScriptManaged, WebhookSecret: "s", AutoPull: true, TimeoutSec: 60, Enabled: true}
+		if err := s.CreateProject(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, p.ID)
+		if err := s.CreateDeployment(ctx, &Deployment{ProjectID: p.ID, Trigger: TriggerManual, Ref: "refs/heads/main"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if got, _ := s.UserByID(ctx, u.ID); got.SelectedProjects {
+		t.Fatal("new users see every project")
+	}
+	if err := s.SetUserProjects(ctx, u.ID, true, []ProjectMember{{ProjectID: ids[0], Role: RoleViewer}, {ProjectID: ids[1], Role: RoleDeployer}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.UserByID(ctx, u.ID); !got.SelectedProjects {
+		t.Fatal("selected_projects not saved")
+	}
+	// By project name: api before web.
+	if m, err := s.UserProjects(ctx, u.ID); err != nil || len(m) != 2 || m[0] != (ProjectMember{ids[1], RoleDeployer}) {
+		t.Fatalf("members = %+v, %v", m, err)
+	}
+	if r, ok, _ := s.ProjectMemberRole(ctx, ids[0], u.ID); !ok || r != RoleViewer {
+		t.Fatalf("role on web = %q %v", r, ok)
+	}
+	if err := s.SetUserProjects(ctx, u.ID, true, []ProjectMember{{ProjectID: ids[0], Role: RoleAdmin}}); err == nil {
+		t.Fatal("admin is not a project role")
+	}
+
+	if err := s.SetUserProjects(ctx, u.ID, true, []ProjectMember{{ProjectID: ids[1], Role: RoleViewer}}); err != nil {
+		t.Fatal(err)
+	}
+	if mine, _ := s.RecentDeployments(ctx, 10, false, u.ID); len(mine) != 1 || mine[0].ProjectID != ids[1] {
+		t.Fatalf("recent of a member = %+v", mine)
+	}
+
+	if err := s.SetUserProjects(ctx, u.ID, false, []ProjectMember{{ProjectID: ids[0], Role: RoleViewer}}); err != nil {
+		t.Fatal(err)
+	}
+	if all, _ := s.AllProjectMembers(ctx); len(all) != 0 {
+		t.Fatalf("every project again, members = %+v", all)
 	}
 }

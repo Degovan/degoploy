@@ -74,7 +74,7 @@
 		return () => clearInterval(t);
 	});
 
-	const canDeploy = $derived(session.can('project.deploy'));
+	const canDeploy = $derived(session.canOn(project.data, 'project.deploy'));
 	const backHref = $derived(resolve('/(app)/projects/[id]', { id: String(data.id) }));
 	const deploymentHref = (did: number) =>
 		resolve('/(app)/projects/[id]/deployments/[did]', { id: String(data.id), did: String(did) });

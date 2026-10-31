@@ -1,7 +1,7 @@
 ---
 title: Users & invites
 admin: true
-updated: 2026-10-29
+updated: 2026-10-31
 ---
 
 # Users and invites
@@ -51,6 +51,7 @@ Click the pencil on a user's row:
 
 - **Display name** and **Email**.
 - **Role**: pick one of the three role cards.
+- **Project access**: every project, or only some (below). Not shown for admins.
 - **Disable sign-in**: signs them out everywhere and blocks sign-in until you turn it back on. Their data stays.
 - **Delete user**: removes the account. Audit entries and deployments they started are kept.
 
@@ -58,6 +59,22 @@ Click the pencil on a user's row:
 > There must always be **at least one active admin**. The last admin cannot be demoted, disabled or deleted. You also cannot change your own role, disable yourself or delete your own account.
 
 For SSO users with *Sync role on every sign-in* turned on, a role you set here may be overwritten by their SSO groups the next time they sign in. See [role mapping](single-sign-on.md#map-groups-to-roles).
+
+## Limit a user to some projects
+
+For a Deployer or Viewer, **Project access** decides which projects they see:
+
+- **All projects** (the default): their role applies everywhere, including projects added later.
+- **Selected projects**: tick the projects they may see and pick **Deployer** or **Viewer** on each. They see nothing else.
+
+```text
+budi  Deployer · 2 projects
+  ☑ Company Blog   Deployer
+  ☐ Internal API
+  ☑ Shop           Viewer
+```
+
+The user list shows how many projects a limited user has under their role. Changes apply at once and are recorded in the [audit log](audit-log.md). Promoting a user to Admin clears their selection, since admins see every project. See [Selected projects](roles.md#selected-projects) for what a limited user can do.
 
 ## Reset a user's password
 

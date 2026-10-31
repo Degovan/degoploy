@@ -33,7 +33,7 @@ func TestCanGlobalRoles(t *testing.T) {
 	}
 }
 
-func TestCanProjectOverride(t *testing.T) {
+func TestCanSelectedProjects(t *testing.T) {
 	ctx := context.Background()
 	a := &Authorizer{ProjectRoles: func(_ context.Context, projectID, _ int64) (store.Role, bool, error) {
 		if projectID == 7 {
@@ -41,16 +41,26 @@ func TestCanProjectOverride(t *testing.T) {
 		}
 		return "", false, nil
 	}}
-	u := &store.User{ID: 1, Role: store.RoleViewer}
+	u := &store.User{ID: 1, Role: store.RoleViewer, SelectedProjects: true}
 	if !a.Can(ctx, u, ActionProjectDeploy, 7) {
-		t.Error("project override should grant deploy on project 7")
+		t.Error("membership should grant deploy on project 7")
 	}
-	if a.Can(ctx, u, ActionProjectDeploy, 8) {
-		t.Error("no override on project 8; viewer must not deploy")
+	if a.Can(ctx, u, ActionProjectView, 8) {
+		t.Error("not a member of project 8; must not even view it")
 	}
-	admin := &store.User{ID: 2, Role: store.RoleViewer}
-	a.ProjectRoles = func(context.Context, int64, int64) (store.Role, bool, error) { return store.RoleAdmin, true, nil }
-	if a.Can(ctx, admin, ActionUserManage, 7) {
-		t.Error("project membership must not grant global-only actions")
+	if a.Can(ctx, u, ActionUserManage, 7) {
+		t.Error("membership must not grant global-only actions")
+	}
+
+	all := &store.User{ID: 2, Role: store.RoleViewer}
+	if a.Can(ctx, all, ActionProjectDeploy, 7) || !a.Can(ctx, all, ActionProjectView, 8) {
+		t.Error("without selected projects, the global role applies everywhere")
+	}
+	admin := &store.User{ID: 3, Role: store.RoleAdmin, SelectedProjects: true}
+	if !a.Can(ctx, admin, ActionProjectEdit, 8) {
+		t.Error("admins see every project")
+	}
+	if got := a.ProjectPermissions(ctx, u, 7); len(got) != 2 {
+		t.Errorf("project permissions = %v, want view and deploy", got)
 	}
 }

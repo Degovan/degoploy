@@ -194,6 +194,16 @@ export function describe(e: AuditEntry, names: Map<string, string>): AuditSenten
 			if (changes.disabled) {
 				return { actor, verb: changes.disabled[1] ? 'disabled' : 'enabled', target, meta: rest };
 			}
+			if (changes.project_access || changes.projects) {
+				const selected = (changes.project_access?.[1] ?? 'selected') === 'selected';
+				return {
+					actor,
+					verb: 'changed the project access of',
+					target,
+					suffix: selected ? '' : '→ all projects',
+					meta: selected ? [str(changes.projects?.[1]) || 'no projects'] : []
+				};
+			}
 			return { actor, verb: 'updated', target, meta: rest };
 		}
 		case 'user.delete':

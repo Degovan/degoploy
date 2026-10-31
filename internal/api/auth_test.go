@@ -79,7 +79,7 @@ func newTestServerWith(t *testing.T, configure func(cfg *config.Config, baseURL 
 	sessions := auth.NewSessions(st, cfg.SessionTTL, false)
 	a := api.New(api.Deps{
 		Config: &cfg, Store: st, Sessions: sessions,
-		Authz: &auth.Authorizer{}, Audit: audit.New(st), Version: "test",
+		Authz: &auth.Authorizer{ProjectRoles: st.ProjectMemberRole}, Audit: audit.New(st), Version: "test",
 		Projects: projects, Deploys: deploys, Hub: hub, OIDC: sso, Secrets: box,
 		Runtimes: toolchain.NewSet(cfg.DataDir, toolchain.Options{
 			NodeMirror: cfg.NodeMirror, PHPMirror: cfg.PHPMirror, ComposerURL: cfg.ComposerURL, NoSystem: true,
