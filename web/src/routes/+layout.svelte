@@ -17,6 +17,25 @@
 	// Dark is the default look. ModeWatcher's defaultMode needs its head script (blocked
 	// by our CSP) and it stores "system" on load, so apply dark once per browser here;
 	// a theme picked later in the user menu is kept.
+	// The loading screen in app.html stays until the first page is ready. One
+	// that never showed (a fast load) goes at once; a visible one fades out.
+	onMount(() => {
+		const splash = document.getElementById('splash');
+		if (!splash) return;
+		const opacity = Number(getComputedStyle(splash).opacity);
+		if (opacity < 0.05 || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+			splash.remove();
+			return;
+		}
+		splash
+			.animate([{ opacity }, { opacity: 0 }], {
+				duration: 180,
+				easing: 'ease-out',
+				fill: 'forwards'
+			})
+			.finished.finally(() => splash.remove());
+	});
+
 	onMount(() => {
 		try {
 			if (localStorage.getItem('degoploy.theme-default')) return;
