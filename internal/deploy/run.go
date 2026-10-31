@@ -17,6 +17,7 @@ import (
 
 	"github.com/degovan/degoploy/internal/gitops"
 	"github.com/degovan/degoploy/internal/project"
+	"github.com/degovan/degoploy/internal/release"
 	"github.com/degovan/degoploy/internal/runas"
 	"github.com/degovan/degoploy/internal/secrets"
 	"github.com/degovan/degoploy/internal/store"
@@ -68,45 +69,86 @@ func (s *Service) run(ctx context.Context, d *store.Deployment, p *store.Project
 	}
 	defer agent.Close()
 	gitEnv := agent.Env().Environ()
+	job := &job{d: d, p: p, w: w, rule: rule, vars: vars, masked: masked, gitEnv: gitEnv, dir: p.WorkDir}
 
-	if p.AutoPull {
+	switch {
+	case d.Trigger == store.TriggerRollback:
+		return s.outcome(ctx, w, start, s.rollback(ctx, job))
+	case p.Releases:
+		err = s.build(ctx, job)
+		if err != nil && job.release != 0 {
+			s.discard(ctx, job)
+		}
+		return s.outcome(ctx, w, start, err)
+	case p.AutoPull:
 		if err := s.pull(ctx, d, p, w, gitEnv); err != nil {
 			return s.outcome(ctx, w, start, err)
 		}
-	} else if st, err := os.Stat(p.WorkDir); err != nil || !st.IsDir() {
-		return s.outcome(ctx, w, start, fmt.Errorf("working directory %s does not exist (auto pull is off)", p.WorkDir))
+	default:
+		if st, err := os.Stat(p.WorkDir); err != nil || !st.IsDir() {
+			return s.outcome(ctx, w, start, fmt.Errorf("working directory %s does not exist (auto pull is off)", p.WorkDir))
+		}
 	}
+	return s.outcome(ctx, w, start, s.runScript(ctx, job))
+}
 
-	script, content, err := s.script(p)
-	if err != nil {
-		return s.outcome(ctx, w, start, err)
-	}
-	if err := s.store.MarkScriptStarted(context.WithoutCancel(ctx), d.ID, p.ScriptSource == store.ScriptManaged); err == nil {
-		s.notify(d.ID)
-	}
-	bins, runtimeEnv, err := s.setupRuntimes(ctx, p, w)
-	if err != nil {
-		return s.outcome(ctx, w, start, err)
-	}
-	step(w, "Running %s", script)
+// job is what the steps of one deployment share.
+type job struct {
+	d      *store.Deployment
+	p      *store.Project
+	w      io.Writer
+	rule   *store.TriggerRule
+	vars   []string
+	masked []string // secret values to hide in the log
+	gitEnv []string
+	// dir is where the script runs: work_dir, or the release being built.
+	dir string
+	// release is the release being built or switched to; 0 deploying in place.
+	release int64
+	// bins and runtimeEnv set up the runtimes the script used.
+	bins, runtimeEnv []string
+}
 
-	env := s.scriptEnv(d, p, rule, vars, gitEnv)
-	if len(bins) > 0 {
-		env = withRuntimes(env, bins, runtimeEnv)
+// env is the environment of the script and the after-activate commands, run in dir.
+func (s *Service) env(j *job, dir string) []string {
+	env := s.scriptEnv(j.d, j.p, j.rule, j.vars, j.gitEnv, dir, j.release)
+	if len(j.bins) > 0 {
+		env = withRuntimes(env, j.bins, j.runtimeEnv)
 	}
-	spec := runas.Spec{Dir: p.WorkDir, Env: env, Argv: []string{"bash", "--noprofile", "--norc", script}}
+	return env
+}
+
+// runScript runs the deploy script in j.dir.
+func (s *Service) runScript(ctx context.Context, j *job) error {
+	script, content, err := s.script(j.p, j.dir)
+	if err != nil {
+		return err
+	}
+	if err := s.store.MarkScriptStarted(context.WithoutCancel(ctx), j.d.ID, j.p.ScriptSource == store.ScriptManaged); err == nil {
+		s.notify(j.d.ID)
+	}
+	if j.bins, j.runtimeEnv, err = s.setupRuntimes(ctx, j.p, j.w, j.dir); err != nil {
+		return err
+	}
+	step(j.w, "Running %s", script)
+	return s.bash(ctx, j, j.dir, script, content)
+}
+
+// bash runs a script file, or content (named by path in messages), in dir.
+func (s *Service) bash(ctx context.Context, j *job, dir, path, content string) error {
+	spec := runas.Spec{Dir: dir, Env: s.env(j, dir), Argv: []string{"bash", "--noprofile", "--norc", path}}
 	if content != "" {
 		// The deploy user cannot read degoploy's copy, so bash gets the text.
 		spec.Script, spec.Argv[3] = content, runas.ScriptPath
 	}
 	cmd, err := s.runner().Command(ctx, spec)
 	if err != nil {
-		return s.outcome(ctx, w, start, err)
+		return err
 	}
 	setProcessGroup(cmd)
 	// Secrets are masked before the last-line summary sees the output.
-	out := &lastLine{w: w}
-	red := newRedactor(out, masked)
+	out := &lastLine{w: j.w}
+	red := newRedactor(out, j.masked)
 	cmd.Stdout, cmd.Stderr = red, red
 	err = cmd.Run()
 	red.Flush()
@@ -116,10 +158,10 @@ func (s *Service) run(ctx context.Context, d *store.Deployment, p *store.Project
 	}
 	if err != nil {
 		// bash prefixes errors with the script path; the file name is enough.
-		last := strings.ReplaceAll(out.Last(), spec.Argv[3]+":", filepath.Base(script)+":")
-		err = &scriptError{err: err, last: last}
+		last := strings.ReplaceAll(out.Last(), spec.Argv[3]+":", filepath.Base(path)+":")
+		return &scriptError{err: err, last: last}
 	}
-	return s.outcome(ctx, w, start, err)
+	return nil
 }
 
 // scriptError is a failed deploy script or git command with the last line it printed.
@@ -174,20 +216,7 @@ func (s *Service) pull(ctx context.Context, d *store.Deployment, p *store.Projec
 		return errors.New("no ref to deploy")
 	}
 	mkdir := false
-	git := func(args ...string) error {
-		fmt.Fprintf(w, "%s$ git %s%s\n", ansiDim, strings.Join(args, " "), ansiReset)
-		cmd, err := s.runner().Command(ctx, runas.Spec{Dir: p.WorkDir, Mkdir: mkdir, Env: env, Argv: append([]string{"git"}, args...)})
-		if err != nil {
-			return err
-		}
-		out := &lastLine{w: w}
-		cmd.Stdout, cmd.Stderr = out, out
-		setProcessGroup(cmd)
-		if err := cmd.Run(); err != nil {
-			return &scriptError{err: err, git: true, last: out.Last()}
-		}
-		return nil
-	}
+	git := func(args ...string) error { return s.git(ctx, w, p.WorkDir, mkdir, env, args...) }
 
 	step(w, "Updating repository in %s", p.WorkDir)
 	if _, err := os.Stat(filepath.Join(p.WorkDir, ".git")); errors.Is(err, os.ErrNotExist) {
@@ -224,22 +253,29 @@ func (s *Service) pull(ctx context.Context, d *store.Deployment, p *store.Projec
 		}
 	}
 
-	// Record what was actually deployed (manual deploys only know the ref).
-	out, err := s.gitOutput(ctx, p.WorkDir, env, "log", "-1", "--format=%H%x00%s%x00%an")
-	if err == nil {
-		parts := strings.SplitN(strings.TrimSpace(out), "\x00", 3)
-		if len(parts) == 3 {
-			d.CommitSHA = parts[0]
-			s.store.SetDeploymentCommit(context.WithoutCancel(ctx), d.ID, parts[0], parts[1], parts[2])
-			s.notify(d.ID)
-		}
+	s.recordCommit(ctx, d, p.WorkDir, env)
+	return nil
+}
+
+// git runs git in dir, which mkdir creates first, and shows the command in the log.
+func (s *Service) git(ctx context.Context, w io.Writer, dir string, mkdir bool, env []string, args ...string) error {
+	fmt.Fprintf(w, "%s$ git %s%s\n", ansiDim, strings.Join(args, " "), ansiReset)
+	cmd, err := s.runner().Command(ctx, runas.Spec{Dir: dir, Mkdir: mkdir, Env: env, Argv: append([]string{"git"}, args...)})
+	if err != nil {
+		return err
+	}
+	out := &lastLine{w: w}
+	cmd.Stdout, cmd.Stderr = out, out
+	setProcessGroup(cmd)
+	if err := cmd.Run(); err != nil {
+		return &scriptError{err: err, git: true, last: out.Last()}
 	}
 	return nil
 }
 
-// script returns the path of the deploy script and, for a managed script,
-// its content.
-func (s *Service) script(p *store.Project) (path, content string, err error) {
+// script returns the path of the deploy script, for a repository script in
+// dir, and for a managed script its content.
+func (s *Service) script(p *store.Project, dir string) (path, content string, err error) {
 	if p.ScriptSource == store.ScriptManaged {
 		path := s.projects.ManagedScriptPath(p)
 		b, err := os.ReadFile(path)
@@ -248,7 +284,7 @@ func (s *Service) script(p *store.Project) (path, content string, err error) {
 		}
 		return path, string(b), nil
 	}
-	path, err = project.ResolveRepoScript(p.WorkDir, p.ScriptPath)
+	path, err = project.ResolveRepoScript(dir, p.ScriptPath)
 	if err != nil {
 		return "", "", fmt.Errorf("deploy script %s: %w", p.ScriptPath, err)
 	}
@@ -256,9 +292,10 @@ func (s *Service) script(p *store.Project) (path, content string, err error) {
 }
 
 // setupRuntimes picks the version of each runtime (Node.js, PHP) the project
-// uses, installs it when needed, and returns the bin directories to put first
-// on PATH and the environment the runtimes add.
-func (s *Service) setupRuntimes(ctx context.Context, p *store.Project, w io.Writer) (bins, env []string, err error) {
+// uses, by its settings and the repository's files in dir, installs it when
+// needed, and returns the bin directories to put first on PATH and the
+// environment the runtimes add.
+func (s *Service) setupRuntimes(ctx context.Context, p *store.Project, w io.Writer, dir string) (bins, env []string, err error) {
 	if s.Runtimes == nil {
 		return nil, nil, nil
 	}
@@ -279,7 +316,7 @@ func (s *Service) setupRuntimes(ctx context.Context, p *store.Project, w io.Writ
 			continue
 		case toolchain.Auto, "":
 			var uses bool
-			spec, source, uses = m.Kind().Detect(p.WorkDir)
+			spec, source, uses = m.Kind().Detect(dir)
 			if !uses {
 				continue
 			}
@@ -375,8 +412,9 @@ func (s *Service) projectVars(ctx context.Context, p *store.Project) (env, maske
 //
 // Scripts get gitEnv's GIT_SSH_COMMAND (so `git pull` and private submodules
 // use the deploy key) but not the transport restriction degoploy applies to
-// its own git calls.
-func (s *Service) scriptEnv(d *store.Deployment, p *store.Project, rule *store.TriggerRule, vars, gitEnv []string) []string {
+// its own git calls. dir is where the script runs and rel the release it
+// builds or switches to (0 deploying in place).
+func (s *Service) scriptEnv(d *store.Deployment, p *store.Project, rule *store.TriggerRule, vars, gitEnv []string, dir string, rel int64) []string {
 	var env []string
 	for _, kv := range gitEnv {
 		if !strings.HasPrefix(kv, "GIT_ALLOW_PROTOCOL=") {
@@ -398,6 +436,14 @@ func (s *Service) scriptEnv(d *store.Deployment, p *store.Project, rule *store.T
 	case strings.HasPrefix(d.Ref, "refs/tags/"):
 		tag = strings.TrimPrefix(d.Ref, "refs/tags/")
 	}
+	if rel != 0 {
+		env = append(env,
+			"DEPLOY_RELEASE="+strconv.FormatInt(rel, 10),
+			"DEPLOY_RELEASE_DIR="+release.Dir(p.WorkDir, rel),
+			"DEPLOY_SHARED_DIR="+release.Shared(p.WorkDir),
+			"DEPLOY_CURRENT_DIR="+release.Current(p.WorkDir),
+		)
+	}
 	return append(env,
 		"DEGOPLOY=1",
 		"DEPLOY_ID="+strconv.FormatInt(d.ID, 10),
@@ -410,7 +456,7 @@ func (s *Service) scriptEnv(d *store.Deployment, p *store.Project, rule *store.T
 		"DEPLOY_TAG="+tag,
 		"DEPLOY_COMMIT="+d.CommitSHA,
 		"DEPLOY_AUTHOR="+d.Author,
-		"DEPLOY_WORKDIR="+p.WorkDir,
+		"DEPLOY_WORKDIR="+dir,
 	)
 }
 

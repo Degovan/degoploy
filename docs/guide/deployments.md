@@ -1,13 +1,13 @@
 ---
 title: Deployments
-updated: 2026-10-29
+updated: 2026-10-30
 ---
 
 # Deployments
 
 A deployment is one run of the deploy script. Each has a number, a status, its stages and a full log you can follow live.
 
-Everyone can see deployments and their logs. **Deployers** and **admins** can also deploy manually, cancel and redeploy.
+Everyone can see deployments and their logs. **Deployers** and **admins** can also deploy manually, cancel, redeploy and roll back.
 
 ## Where deployments come from
 
@@ -16,6 +16,7 @@ Everyone can see deployments and their logs. **Deployers** and **admins** can al
 | **Webhook** | A push matches a [trigger rule](trigger-rules.md) |
 | **Manual** | Someone clicks **Deploy now** |
 | **Redeploy** | Someone runs an earlier deployment again |
+| **Rollback** | Someone makes an earlier [release](releases.md) live again |
 
 ## The life of a deployment
 
@@ -36,7 +37,9 @@ flowchart LR
 
 - **Trigger**: the deployment is accepted and prepared.
 - **Update repo**: the repository in the working directory is cloned the first time, or updated to the pushed commit.
-- **Script**: the deploy script runs.
+- **Script**: the deploy script runs. With [releases](releases.md), `current` then switches to the new release.
+
+A rollback skips the first two: its last stage, **Switch release**, points `current` at the release.
 
 ### Statuses
 
@@ -88,6 +91,9 @@ Click **Redeploy** on a deployment. degoploy starts a new deployment of the **sa
 
 > [!NOTE]
 > A redeploy runs the **current** deploy script, not the one the original deployment used.
+
+> [!TIP]
+> With [releases](releases.md) on, roll back from the **Releases** list instead: the older release is already built, so switching to it takes a second and runs no script.
 
 ## Good to know
 

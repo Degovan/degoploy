@@ -15,6 +15,7 @@ import (
 	"github.com/degovan/degoploy/internal/deploy"
 	"github.com/degovan/degoploy/internal/httpx"
 	"github.com/degovan/degoploy/internal/realtime"
+	"github.com/degovan/degoploy/internal/release"
 	"github.com/degovan/degoploy/internal/store"
 	"github.com/degovan/degoploy/internal/trigger"
 )
@@ -31,6 +32,8 @@ func (a *API) registerDeployments(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/deployments/{did}/neighbors", h(a.deploymentNeighbors))
 	mux.Handle("POST /api/v1/deployments/{did}/cancel", h(a.cancelDeployment))
 	mux.Handle("POST /api/v1/deployments/{did}/redeploy", h(a.redeploy))
+	mux.Handle("GET /api/v1/projects/{id}/releases", h(a.listReleases))
+	mux.Handle("POST /api/v1/projects/{id}/releases/{rid}/activate", h(a.activateRelease))
 }
 
 // publishDeployment pushes a deployment change to realtime subscribers.
@@ -246,13 +249,18 @@ func (a *API) redeploy(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if d.Ref == "" {
-		httpx.Error(w, http.StatusConflict, "no_ref", "this deployment has no ref to redeploy")
-		return
-	}
 	p, err := a.store.ProjectByID(r.Context(), d.ProjectID)
 	if err != nil {
 		httpx.InternalError(w, r, err)
+		return
+	}
+	// Running a rollback again switches to the same release again.
+	if d.Trigger == store.TriggerRollback && d.ReleaseID != nil {
+		a.rollback(w, r, ident, p, *d.ReleaseID)
+		return
+	}
+	if d.Ref == "" {
+		httpx.Error(w, http.StatusConflict, "no_ref", "this deployment has no ref to redeploy")
 		return
 	}
 	req := deploy.Request{
@@ -287,8 +295,8 @@ func toDeployment(v *store.DeploymentView) Deployment {
 		ID: v.ID, ProjectID: v.ProjectID, RuleID: v.RuleID, RuleName: v.RuleName, Trigger: v.Trigger,
 		TriggeredBy: v.TriggeredByName, Ref: v.Ref, CommitSHA: v.CommitSHA, CommitMessage: v.CommitMessage,
 		Author: v.Author, Status: v.Status, ExitCode: v.ExitCode, Error: v.Error, AutoPull: v.AutoPull,
-		ScriptRevisionID: v.ScriptRevisionID,
-		QueuedAt:         msTime(v.QueuedAt), StartedAt: msTimePtr(v.StartedAt),
+		ScriptRevisionID: v.ScriptRevisionID, ReleaseID: v.ReleaseID,
+		QueuedAt: msTime(v.QueuedAt), StartedAt: msTimePtr(v.StartedAt),
 		ScriptStartedAt: msTimePtr(v.ScriptStartedAt), FinishedAt: msTimePtr(v.FinishedAt),
 	}
 }
@@ -302,4 +310,62 @@ func msTimePtr(t *time.Time) *string {
 	}
 	s := msTime(*t)
 	return &s
+}
+
+// listReleases lists the releases on the server, newest first.
+func (a *API) listReleases(w http.ResponseWriter, r *http.Request) {
+	p, _, ok := a.loadProject(w, r, auth.ActionProjectView)
+	if !ok {
+		return
+	}
+	out := []Release{}
+	if p.Releases {
+		live := release.Live(p.WorkDir)
+		for _, id := range release.List(p.WorkDir) {
+			rel := Release{ID: id, Live: id == live}
+			if v, err := a.store.DeploymentViewByID(r.Context(), id); err == nil && v.ProjectID == p.ID {
+				d := toDeployment(v)
+				rel.Deployment = &d
+			}
+			out = append(out, rel)
+		}
+	}
+	httpx.JSON(w, http.StatusOK, out)
+}
+
+// activateRelease queues a deployment that makes a release current again.
+func (a *API) activateRelease(w http.ResponseWriter, r *http.Request) {
+	p, ident, ok := a.loadProject(w, r, auth.ActionProjectDeploy)
+	if !ok {
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("rid"), 10, 64)
+	if err != nil || !p.Releases || !release.Exists(p.WorkDir, id) {
+		httpx.Error(w, http.StatusNotFound, "not_found", "release not found")
+		return
+	}
+	a.rollback(w, r, ident, p, id)
+}
+
+func (a *API) rollback(w http.ResponseWriter, r *http.Request, ident *auth.Identity, p *store.Project, id int64) {
+	if !p.Releases {
+		httpx.Error(w, http.StatusConflict, "no_releases", "this project deploys in place; turn releases on to switch between them")
+		return
+	}
+	if !release.Exists(p.WorkDir, id) {
+		httpx.Error(w, http.StatusConflict, "release_gone", fmt.Sprintf("release %d is no longer on the server", id))
+		return
+	}
+	req := deploy.Request{Project: p, Trigger: store.TriggerRollback, TriggeredBy: ident.User.ID, ReleaseID: id}
+	// Show what the release runs: the commit its own deployment built.
+	if v, err := a.store.DeploymentViewByID(r.Context(), id); err == nil && v.ProjectID == p.ID {
+		req.Ref, req.CommitSHA, req.Message, req.Author = v.Ref, v.CommitSHA, v.CommitMessage, v.Author
+	}
+	d, err := a.deploys.Enqueue(r.Context(), req)
+	if err != nil {
+		httpx.InternalError(w, r, err)
+		return
+	}
+	a.recordProject(r, ident.User.ID, audit.DeploymentRollback, p, map[string]any{"deployment": d.ID, "release": id})
+	a.writeDeployment(w, r, d.ID, http.StatusCreated)
 }

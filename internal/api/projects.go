@@ -4,12 +4,14 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/degovan/degoploy/internal/audit"
 	"github.com/degovan/degoploy/internal/auth"
 	"github.com/degovan/degoploy/internal/httpx"
 	"github.com/degovan/degoploy/internal/project"
+	"github.com/degovan/degoploy/internal/release"
 	"github.com/degovan/degoploy/internal/store"
 )
 
@@ -126,7 +128,7 @@ func (a *API) createProject(w http.ResponseWriter, r *http.Request) {
 	p, err := a.projects.Create(r.Context(), project.Input{
 		Name: req.Name, Slug: req.Slug, Provider: req.Provider, RepoURL: req.RepoURL, WorkDir: req.WorkDir,
 		ScriptSource: req.ScriptSource, ScriptPath: req.ScriptPath, AutoPull: req.AutoPull,
-		TimeoutSec: req.TimeoutSec, Enabled: req.Enabled, DefaultBranch: req.DefaultBranch,
+		TimeoutSec: req.TimeoutSec, Enabled: req.Enabled, Releases: req.Releases, DefaultBranch: req.DefaultBranch,
 	}, ident.User.ID)
 	if err != nil {
 		a.projectError(w, r, err)
@@ -190,6 +192,10 @@ func (a *API) updateProject(w http.ResponseWriter, r *http.Request) {
 	setIf(&in.AutoPull, req.AutoPull)
 	setIf(&in.TimeoutSec, req.TimeoutSec)
 	setIf(&in.Enabled, req.Enabled)
+	setIf(&in.Releases, req.Releases)
+	setIf(&in.KeepReleases, req.KeepReleases)
+	setIf(&in.SharedPaths, req.SharedPaths)
+	setIf(&in.AfterActivate, req.AfterActivate)
 	in.Runtimes = req.Runtimes
 
 	before, err := a.projectDTO(r, p)
@@ -358,13 +364,20 @@ func (a *API) listScriptRevisions(w http.ResponseWriter, r *http.Request) {
 }
 
 func toProject(p *store.Project) Project {
-	return Project{
+	out := Project{
 		ID: p.ID, Slug: p.Slug, Name: p.Name, Provider: p.Provider, RepoURL: p.RepoURL,
 		WorkDir: p.WorkDir, ScriptSource: p.ScriptSource, ScriptPath: p.ScriptPath,
 		AutoPull: p.AutoPull, TimeoutSec: p.TimeoutSec, Enabled: p.Enabled,
+		Releases: p.Releases, KeepReleases: p.KeepReleases, SharedPaths: p.SharedPaths, AfterActivate: p.AfterActivate,
 		CreatedAt: p.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt: p.UpdatedAt.UTC().Format(time.RFC3339),
 	}
+	if p.Releases {
+		if id := release.Live(p.WorkDir); id != 0 {
+			out.LiveRelease = &id
+		}
+	}
+	return out
 }
 
 // projectDTO is toProject with the project's runtime settings.
@@ -395,6 +408,10 @@ func diffProjects(before, after Project) map[string][2]any {
 	add("auto_pull", before.AutoPull, after.AutoPull)
 	add("timeout_sec", before.TimeoutSec, after.TimeoutSec)
 	add("enabled", before.Enabled, after.Enabled)
+	add("releases", before.Releases, after.Releases)
+	add("keep_releases", before.KeepReleases, after.KeepReleases)
+	add("shared_paths", strings.Join(before.SharedPaths, " "), strings.Join(after.SharedPaths, " "))
+	add("after_activate", before.AfterActivate, after.AfterActivate)
 	for i, r := range after.Runtimes {
 		if i < len(before.Runtimes) && before.Runtimes[i].Name == r.Name {
 			add("runtimes."+r.Name, before.Runtimes[i].Spec, r.Spec)

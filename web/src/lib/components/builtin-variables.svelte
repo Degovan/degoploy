@@ -9,13 +9,17 @@
 		['DEPLOY_PROJECT', 'Project slug'],
 		['DEPLOY_PROJECT_NAME', 'Project name'],
 		['DEPLOY_RULE', 'Name of the matched rule'],
-		['DEPLOY_TRIGGER', 'webhook, manual or redeploy'],
+		['DEPLOY_TRIGGER', 'webhook, manual, redeploy or rollback'],
 		['DEPLOY_REF', 'Full git ref that was pushed'],
 		['DEPLOY_BRANCH', 'Branch name, empty for tags'],
 		['DEPLOY_TAG', 'Tag name, empty for branches'],
 		['DEPLOY_COMMIT', 'Full commit SHA'],
 		['DEPLOY_AUTHOR', 'Commit author'],
-		['DEPLOY_WORKDIR', 'Working directory'],
+		['DEPLOY_WORKDIR', 'Folder the script runs in'],
+		['DEPLOY_RELEASE', 'With releases: the release number'],
+		['DEPLOY_RELEASE_DIR', 'With releases: its folder'],
+		['DEPLOY_SHARED_DIR', 'With releases: the shared folder'],
+		['DEPLOY_CURRENT_DIR', 'With releases: the link to the live release'],
 		['GIT_SSH_COMMAND', "Uses this project's deploy key"]
 	];
 

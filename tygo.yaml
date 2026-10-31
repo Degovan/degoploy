@@ -11,7 +11,7 @@ packages:
       export type ScriptSource = 'managed' | 'repo';
       export type TriggerEvent = 'push' | 'tag';
       export type AuditDetail = Record<string, unknown>;
-      export type DeployTrigger = 'webhook' | 'manual' | 'redeploy';
+      export type DeployTrigger = 'webhook' | 'manual' | 'redeploy' | 'rollback';
       export type DeliveryStatus = 'pong' | 'queued' | 'skipped' | 'ignored' | 'rejected';
       export type DeployStatus = 'queued' | 'running' | 'success' | 'failed' | 'canceled' | 'timeout' | 'skipped';
       export type Action =

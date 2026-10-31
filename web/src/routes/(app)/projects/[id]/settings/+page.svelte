@@ -17,6 +17,7 @@
 	import { Label } from '#lib/components/ui/label/index.js';
 	import { Skeleton } from '#lib/components/ui/skeleton/index.js';
 	import { Switch } from '#lib/components/ui/switch/index.js';
+	import { Textarea } from '#lib/components/ui/textarea/index.js';
 	import * as AlertDialog from '#lib/components/ui/alert-dialog/index.js';
 	import { session } from '#lib/stores/session.svelte.js';
 	import { formatDuration } from '#lib/time.js';
@@ -51,6 +52,11 @@
 		script_path: string;
 		auto_pull: boolean;
 		timeout_sec: number;
+		releases: boolean;
+		keep_releases: number;
+		/** One path per line. */
+		shared_paths: string;
+		after_activate: string;
 	};
 	type Field = keyof Draft;
 
@@ -63,7 +69,11 @@
 		script_source: p.script_source,
 		script_path: p.script_path || '.degoploy/deploy.sh',
 		auto_pull: p.auto_pull,
-		timeout_sec: p.timeout_sec
+		timeout_sec: p.timeout_sec,
+		releases: p.releases,
+		keep_releases: p.keep_releases,
+		shared_paths: p.shared_paths.join('\n'),
+		after_activate: p.after_activate
 	});
 
 	// Each card edits its own fields of the draft and saves only those.
@@ -87,7 +97,8 @@
 		repository: ['provider', 'repo_url'],
 		workdir: ['work_dir'],
 		script: ['script_source', 'script_path', 'auto_pull'],
-		timeout: ['timeout_sec']
+		timeout: ['timeout_sec'],
+		releases: ['releases', 'keep_releases', 'shared_paths', 'after_activate']
 	} satisfies Record<string, Field[]>;
 	type Card = keyof typeof cards;
 
@@ -108,7 +119,15 @@
 		if (!draft || !saved) return;
 		const fields = cards[card] as Field[];
 		const body: Record<string, unknown> = {};
-		for (const f of fields) body[f] = f === 'timeout_sec' ? Number(draft[f]) : draft[f];
+		for (const f of fields) body[f] = draft[f];
+		if (card === 'timeout') body.timeout_sec = Number(draft.timeout_sec);
+		if (card === 'releases') {
+			body.keep_releases = Number(draft.keep_releases);
+			body.shared_paths = draft.shared_paths
+				.split('\n')
+				.map((l) => l.trim())
+				.filter(Boolean);
+		}
 		if (card === 'script' && draft.script_source === 'managed') delete body.script_path;
 		saving = card;
 		errors = {};
@@ -127,7 +146,10 @@
 			}
 			toast.success('Settings saved');
 		} catch (err) {
-			if (err instanceof ApiError && err.field) errors = { [err.field as Field]: err.message };
+			// An error about a field of another card (turning releases on needs
+			// a fitting work_dir) shows on the card that was saved.
+			if (err instanceof ApiError && err.field && (fields as string[]).includes(err.field))
+				errors = { [err.field as Field]: err.message };
 			else failed = { card, message: errorMessage(err) };
 		} finally {
 			saving = null;
@@ -180,6 +202,7 @@
 		{ id: 'general', label: 'General' },
 		{ id: 'repository', label: 'Repository' },
 		{ id: 'deploy-script', label: 'Deploy Script' },
+		{ id: 'releases', label: 'Releases' },
 		{ id: 'runtimes', label: 'Runtimes' },
 		...(canSecrets ? [{ id: 'deploy-key', label: 'Deploy Key & Webhook' }] : []),
 		{ id: 'danger-zone', label: 'Danger Zone' }
@@ -218,6 +241,7 @@
 	});
 
 	const input = 'h-10 bg-background px-3 dark:bg-background';
+	const sharedExample = ['.env', 'storage/'].join('\n');
 	const mono = 'font-mono text-[13px] md:text-[13px]';
 	const providers: [Provider, string][] = [
 		['github', 'GitHub'],
@@ -514,6 +538,105 @@
 						{/if}
 					</div>
 					{@render fieldError('timeout_sec')}
+				</SettingsCard>
+			</section>
+
+			<section id="releases" class="scroll-mt-32" aria-label="Releases">
+				<SettingsCard
+					title="Releases"
+					description="Build each deployment in a folder of its own and switch to it only when the script succeeds. Visitors never see a half-built site, and an older release is one click away."
+					dirty={dirty('releases')}
+					saving={saving === 'releases'}
+					error={cardError('releases')}
+					onsave={() => save('releases')}
+				>
+					{#snippet note()}
+						{#if draft!.releases}
+							Point the web server at <code class="font-mono">{p.work_dir}/current</code>.
+						{:else}
+							Turning this on needs an empty working directory.
+						{/if}
+					{/snippet}
+					{#snippet aside()}
+						<Switch
+							id="set-releases"
+							bind:checked={draft!.releases}
+							disabled={!draft!.releases && !draft!.auto_pull}
+							aria-label="Deploy in releases"
+							class="data-[size=default]:h-5 data-[size=default]:w-[34px]"
+						/>
+					{/snippet}
+					{#if !draft.auto_pull && !draft.releases}
+						<p class="text-[13px] text-muted-foreground">
+							Needs “Update repository before running” under Deploy Script: each release is a fresh
+							checkout.
+						</p>
+					{/if}
+					{#if draft.releases}
+						<pre
+							class="overflow-x-auto rounded-md border bg-background px-3.5 py-3 font-mono text-xs/relaxed text-muted-foreground">{p.work_dir}/
+├── current → releases/&lt;id&gt;
+├── releases/&lt;id&gt;/   one per deployment
+├── shared/          linked into every release
+└── repo/            fetched commits</pre>
+
+						<div class="flex flex-col gap-2">
+							<Label for="set-keep" class="text-[13px] text-muted-foreground"
+								>Releases to keep</Label
+							>
+							<Input
+								id="set-keep"
+								type="number"
+								min={1}
+								max={50}
+								bind:value={draft.keep_releases}
+								class={cn(input, mono, 'w-[120px]')}
+								aria-invalid={!!errors.keep_releases}
+							/>
+							<span class="text-[13px] text-muted-foreground/80"
+								>Counting the live one; older releases are removed after each switch.</span
+							>
+							{@render fieldError('keep_releases')}
+						</div>
+
+						<div class="flex flex-col gap-2">
+							<Label for="set-shared" class="text-[13px] text-muted-foreground">Shared paths</Label>
+							<Textarea
+								id="set-shared"
+								bind:value={draft.shared_paths}
+								rows={4}
+								spellcheck={false}
+								placeholder={sharedExample}
+								class={cn(mono, 'max-w-[400px] bg-background dark:bg-background')}
+								aria-invalid={!!errors.shared_paths}
+							/>
+							<span class="text-[13px] text-muted-foreground/80">
+								One per line, relative to the repository; end folders with <code>/</code>. They live
+								in <code class="font-mono">shared/</code> and every release links to them.
+							</span>
+							{@render fieldError('shared_paths')}
+						</div>
+
+						<div class="flex flex-col gap-2">
+							<Label for="set-after" class="text-[13px] text-muted-foreground"
+								>After-activate commands</Label
+							>
+							<Textarea
+								id="set-after"
+								bind:value={draft.after_activate}
+								rows={3}
+								spellcheck={false}
+								placeholder="sudo systemctl reload php8.3-fpm"
+								class={cn(mono, 'bg-background dark:bg-background')}
+								aria-invalid={!!errors.after_activate}
+							/>
+							<span class="text-[13px] text-muted-foreground/80">
+								Run with bash in <code class="font-mono">current</code> after every switch, rollbacks
+								included: reload PHP-FPM, restart the app.
+							</span>
+							{@render fieldError('after_activate')}
+						</div>
+					{/if}
 				</SettingsCard>
 			</section>
 

@@ -53,7 +53,9 @@
 			? `Webhook${d.rule_name ? ` · ${d.rule_name}` : ''}`
 			: d.trigger === 'manual'
 				? 'Manual · Deploy now'
-				: 'Redeploy'
+				: d.trigger === 'rollback'
+					? `Rollback · release #${d.release_id ?? '?'}`
+					: 'Redeploy'
 	);
 	const createdBy = $derived(d.triggered_by || d.author);
 

@@ -6,15 +6,20 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/degovan/degoploy/internal/release"
 )
 
 // CheckWorkDirAccess makes sure a deployment can clone into dir as the user
-// this process runs as: dir is a git checkout or an empty folder it may write
-// to, or a folder it may create. The error says how to fix it, so the project
-// form shows the problem before the first deployment runs into it.
-func CheckWorkDirAccess(dir string) error {
+// this process runs as: dir is a git checkout (with releases, a folder laid
+// out for them) or an empty folder it may write to, or a folder it may
+// create. The error says how to fix it, so the project form shows the problem
+// before the first deployment runs into it.
+func CheckWorkDirAccess(dir string, releases bool) error {
 	who := "degoploy"
 	if u, err := user.Current(); err == nil {
 		who = u.Username
@@ -50,12 +55,27 @@ func CheckWorkDirAccess(dir string) error {
 	case unix.Access(dir, unix.W_OK) != nil:
 		return invalid("work_dir", "%s cannot write to %s. Give it access with: sudo setfacl -R -m u:%s:rwX -m d:u:%s:rwX %s", who, dir, who, who, dir)
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+	_, gitErr := os.Stat(filepath.Join(dir, ".git"))
+	if !releases && gitErr == nil {
 		return nil
 	}
-	if entries, err := os.ReadDir(dir); err != nil {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
 		return invalid("work_dir", "%s", err)
-	} else if len(entries) > 0 {
+	}
+	switch {
+	case releases && gitErr == nil:
+		return invalid("work_dir", "%s holds a checkout deployed in place; releases need a folder of their own. Choose an empty one, then point the web server at its current folder", dir)
+	case releases:
+		for _, e := range entries {
+			if !slices.Contains(release.Names, e.Name()) && !strings.HasPrefix(e.Name(), ".current-") {
+				return invalid("work_dir", "%s has files that are not releases (%s); choose an empty folder", dir, e.Name())
+			}
+		}
+	case len(entries) > 0:
+		if _, err := os.Stat(release.Current(dir)); err == nil {
+			return invalid("work_dir", "%s holds releases; turn releases back on, or choose an empty folder to deploy in place", dir)
+		}
 		return invalid("work_dir", "%s has files but is not a git repository; choose an empty folder or a git checkout", dir)
 	}
 	return nil

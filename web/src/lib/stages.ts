@@ -46,7 +46,13 @@ export function deploymentStages(
 
 	const trigger: Stage = { key: 'trigger', label: 'Trigger', state: 'pending', ms: null };
 	const update: Stage = { key: 'update', label: 'Update repo', state: 'pending', ms: null };
-	const script: Stage = { key: 'script', label: scriptLabel(p), state: 'pending', ms: null };
+	// A rollback runs no script: its last stage switches current to the release.
+	const script: Stage = {
+		key: 'script',
+		label: d.trigger === 'rollback' ? 'Switch release' : scriptLabel(p),
+		state: 'pending',
+		ms: null
+	};
 
 	if (started === null) {
 		// Never left the queue: still waiting, or skipped/canceled while queued.

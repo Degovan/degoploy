@@ -35,13 +35,21 @@ func Main() int {
 		return 127
 	}
 	if spec.Check != "" {
-		if err := project.CheckWorkDirAccess(spec.Check); err != nil {
+		if err := project.CheckWorkDirAccess(spec.Check, spec.CheckReleases); err != nil {
 			var ve *project.ValidationError
 			if errors.As(err, &ve) {
 				fmt.Println(ve.Message)
 			} else {
 				fmt.Println(err)
 			}
+		}
+		return 0
+	}
+	if spec.Release != nil {
+		unix.Umask(spec.Umask)
+		if err := spec.Release.Run(os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
 		}
 		return 0
 	}
@@ -73,6 +81,11 @@ func run(spec Spec) (int, error) {
 		env = setEnv(env, "HOME", u.HomeDir)
 		env = setEnv(env, "USER", u.Username)
 		env = setEnv(env, "LOGNAME", u.Username)
+	}
+	if spec.Dir != "" {
+		// The shell keeps the path it was given (current, not the release
+		// current points at) when PWD names the same folder.
+		env = setEnv(env, "PWD", spec.Dir)
 	}
 	if spec.Mkdir {
 		if err := os.MkdirAll(spec.Dir, 0o775); err != nil {

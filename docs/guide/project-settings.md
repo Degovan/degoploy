@@ -1,18 +1,18 @@
 ---
 title: Project settings
 admin: true
-updated: 2026-10-29
+updated: 2026-10-30
 ---
 
 # Project settings
 
-Change what you set up when creating the project: its name, repository, working directory, script source, runtimes, timeout, deploy key and webhook, or delete it.
+Change what you set up when creating the project: its name, repository, working directory, script source, releases, runtimes, timeout, deploy key and webhook, or delete it.
 
 Only **admins** can open a project's **Settings** tab.
 
 ## Saving changes
 
-Every card has its own **Save** button, so you can change one thing without touching the rest. **Save** turns on once you change something. The links on the left (General, Repository, Deploy Script, Deploy Key & Webhook, Danger Zone) jump to each part.
+Every card has its own **Save** button, so you can change one thing without touching the rest. **Save** turns on once you change something. The links on the left (General, Repository, Deploy Script, Releases, Runtimes, Deploy Key & Webhook, Danger Zone) jump to each part.
 
 If you leave the page with unsaved changes, degoploy asks first.
 
@@ -34,6 +34,14 @@ If you leave the page with unsaved changes, degoploy asks first.
 - Choose whether the repository is updated before the script runs.
 - **Runtimes**: for Node.js and PHP each, Auto (when the repository uses it), a version such as `22` or `8.3`, or Off. See [Runtimes](runtimes.md).
 - **Timeout**: runs longer than this are stopped and marked *Timed out*. Between 10 seconds and 24 hours.
+
+## Releases
+
+Build each deployment in a folder of its own and switch `current` to it when the script succeeds. Turning releases on needs an empty working directory. See [Releases and rollback](releases.md).
+
+- **Releases to keep**: counting the live one, between 1 and 50.
+- **Shared paths**: files and folders (ending in `/`) every release links to, such as `.env` and `storage/`.
+- **After-activate commands**: run in `current` after every switch, rollbacks included.
 
 ## Deploy key and webhook
 

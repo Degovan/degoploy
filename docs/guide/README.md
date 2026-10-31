@@ -40,6 +40,7 @@ flowchart TB
 - [Variables and secrets](variables-and-secrets.md)
 - [Runtimes: Node.js and PHP versions](runtimes.md)
 - [Following and managing deployments](deployments.md)
+- [Releases and rollback](releases.md)
 - [Project settings](project-settings.md)
 
 **Users & access**
@@ -59,7 +60,7 @@ flowchart TB
 | Role | Can |
 |---|---|
 | **Viewer** | See projects, deployments and logs |
-| **Deployer** | Everything a Viewer can, plus run, cancel and redeploy |
+| **Deployer** | Everything a Viewer can, plus run, cancel, redeploy and roll back |
 | **Admin** | Everything, including creating projects, editing scripts, rules and secrets, managing users, and sign-in settings |
 
 The full list is in [Roles and permissions](roles.md).

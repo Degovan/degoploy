@@ -28,6 +28,8 @@ import (
 	"syscall"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/degovan/degoploy/internal/release"
 )
 
 // Subcommand is the degoploy command that runs one step.
@@ -50,9 +52,14 @@ type Spec struct {
 	// argument should name it. The deploy user needs no file it can read.
 	Script string `json:"script,omitempty"`
 	// Check, when set, runs nothing: run-step prints what keeps the user from
-	// cloning into this folder, or nothing when it may.
-	Check string `json:"check,omitempty"`
-	Umask int    `json:"umask"`
+	// cloning into this folder (laid out for releases with CheckReleases), or
+	// nothing when it may.
+	Check         string `json:"check,omitempty"`
+	CheckReleases bool   `json:"check_releases,omitempty"`
+	// Release, when set, runs nothing either: run-step changes the project's
+	// releases as it says.
+	Release *release.Op `json:"release,omitempty"`
+	Umask   int         `json:"umask"`
 }
 
 // Runner starts steps as User.
@@ -135,8 +142,8 @@ func (r *Runner) Command(ctx context.Context, spec Spec) (*exec.Cmd, error) {
 // CheckWorkDir reports what keeps the deploy user from cloning into dir, or
 // "" when it may. Steps run as another user also need degoploy to read dir:
 // it picks runtimes from the repository's files and finds its script there.
-func (r *Runner) CheckWorkDir(ctx context.Context, dir string) (string, error) {
-	cmd, err := r.Command(ctx, Spec{Check: dir})
+func (r *Runner) CheckWorkDir(ctx context.Context, dir string, releases bool) (string, error) {
+	cmd, err := r.Command(ctx, Spec{Check: dir, CheckReleases: releases})
 	if err != nil {
 		return "", err
 	}

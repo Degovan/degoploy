@@ -28,6 +28,13 @@ export const deploymentsApi = {
 	logUrl: (id: number) => `/api/v1/deployments/${id}/log?download=1`
 };
 
+export const triggerLabels: Record<Deployment['trigger'], string> = {
+	webhook: 'Webhook',
+	manual: 'Manual',
+	redeploy: 'Redeploy',
+	rollback: 'Rollback'
+};
+
 export const isActive = (d: Pick<Deployment, 'status'>) =>
 	d.status === 'queued' || d.status === 'running';
 

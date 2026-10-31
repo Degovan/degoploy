@@ -35,6 +35,7 @@ const (
 	DeploymentManual   = "deployment.manual"
 	DeploymentCancel   = "deployment.cancel"
 	DeploymentRedeploy = "deployment.redeploy"
+	DeploymentRollback = "deployment.rollback"
 
 	UserCreate        = "user.create"
 	UserUpdate        = "user.update"

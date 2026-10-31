@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/degovan/degoploy/internal/config"
+	"github.com/degovan/degoploy/internal/release"
 	"github.com/degovan/degoploy/internal/runas"
 	"github.com/degovan/degoploy/internal/toolchain"
 )
@@ -242,7 +243,9 @@ func migrateWorkDirs(ctx context.Context, dirs []string, skip string, uid int, n
 				success("Gave %d %s in %s to %s", n, pluralWord(n, "file"), dir, name)
 			}
 		}
-		if msg, err := r.CheckWorkDir(ctx, dir); err != nil {
+		// A project with releases has them in its folder by now.
+		_, err := os.Stat(filepath.Join(dir, release.ReleasesDir))
+		if msg, err := r.CheckWorkDir(ctx, dir, err == nil); err != nil {
 			warning("%s: %v", dir, err)
 		} else if msg != "" {
 			warning("%s", msg)

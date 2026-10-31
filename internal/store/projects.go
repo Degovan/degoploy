@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"time"
 )
@@ -26,23 +27,36 @@ type Project struct {
 	AutoPull      bool
 	TimeoutSec    int
 	Enabled       bool
+	// Releases deploys into releases/<id> and switches current; see package release.
+	Releases      bool
+	KeepReleases  int
+	SharedPaths   []string
+	AfterActivate string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
 
 const projectCols = `id, public_id, slug, name, provider, repo_url, work_dir, script_source, script_path,
-	webhook_secret, auto_pull, timeout_sec, enabled, created_at, updated_at`
+	webhook_secret, auto_pull, timeout_sec, enabled, releases, keep_releases, shared_paths, after_activate,
+	created_at, updated_at`
 
 func scanProject(row interface{ Scan(...any) error }) (*Project, error) {
 	var p Project
+	var shared string
 	err := row.Scan(&p.ID, &p.PublicID, &p.Slug, &p.Name, &p.Provider, &p.RepoURL, &p.WorkDir,
 		&p.ScriptSource, &p.ScriptPath, &p.WebhookSecret, &p.AutoPull, &p.TimeoutSec, &p.Enabled,
-		&p.CreatedAt, &p.UpdatedAt)
+		&p.Releases, &p.KeepReleases, &shared, &p.AfterActivate, &p.CreatedAt, &p.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
+	}
+	if err := json.Unmarshal([]byte(shared), &p.SharedPaths); err != nil {
+		return nil, err
+	}
+	if p.SharedPaths == nil {
+		p.SharedPaths = []string{}
 	}
 	return &p, nil
 }
@@ -50,12 +64,17 @@ func scanProject(row interface{ Scan(...any) error }) (*Project, error) {
 func (s *Store) CreateProject(ctx context.Context, p *Project) error {
 	p.CreatedAt = now()
 	p.UpdatedAt = p.CreatedAt
+	if p.KeepReleases == 0 {
+		p.KeepReleases = DefaultKeepReleases
+	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO projects
 		(public_id, slug, name, provider, repo_url, work_dir, script_source, script_path,
-		 webhook_secret, auto_pull, timeout_sec, enabled, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 webhook_secret, auto_pull, timeout_sec, enabled, releases, keep_releases, shared_paths, after_activate,
+		 created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.PublicID, p.Slug, p.Name, p.Provider, p.RepoURL, p.WorkDir, p.ScriptSource, p.ScriptPath,
-		p.WebhookSecret, p.AutoPull, p.TimeoutSec, p.Enabled, p.CreatedAt, p.UpdatedAt)
+		p.WebhookSecret, p.AutoPull, p.TimeoutSec, p.Enabled, p.Releases, p.KeepReleases, sharedJSON(p),
+		p.AfterActivate, p.CreatedAt, p.UpdatedAt)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return ErrDuplicate
@@ -71,10 +90,12 @@ func (s *Store) UpdateProject(ctx context.Context, p *Project) error {
 	p.UpdatedAt = now()
 	res, err := s.db.ExecContext(ctx, `UPDATE projects SET
 		name = ?, provider = ?, repo_url = ?, work_dir = ?, script_source = ?, script_path = ?,
-		webhook_secret = ?, auto_pull = ?, timeout_sec = ?, enabled = ?, updated_at = ?
+		webhook_secret = ?, auto_pull = ?, timeout_sec = ?, enabled = ?,
+		releases = ?, keep_releases = ?, shared_paths = ?, after_activate = ?, updated_at = ?
 		WHERE id = ?`,
 		p.Name, p.Provider, p.RepoURL, p.WorkDir, p.ScriptSource, p.ScriptPath,
-		p.WebhookSecret, p.AutoPull, p.TimeoutSec, p.Enabled, p.UpdatedAt, p.ID)
+		p.WebhookSecret, p.AutoPull, p.TimeoutSec, p.Enabled,
+		p.Releases, p.KeepReleases, sharedJSON(p), p.AfterActivate, p.UpdatedAt, p.ID)
 	if err != nil {
 		return err
 	}
@@ -82,6 +103,17 @@ func (s *Store) UpdateProject(ctx context.Context, p *Project) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// DefaultKeepReleases is how many releases a project keeps unless it says otherwise.
+const DefaultKeepReleases = 5
+
+func sharedJSON(p *Project) string {
+	if len(p.SharedPaths) == 0 {
+		return "[]"
+	}
+	b, _ := json.Marshal(p.SharedPaths)
+	return string(b)
 }
 
 func (s *Store) DeleteProject(ctx context.Context, id int64) error {

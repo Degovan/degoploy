@@ -28,12 +28,14 @@ import (
 type Request struct {
 	Project     *store.Project
 	Rule        *store.TriggerRule // nil when no rule applies
-	Trigger     string             // store.TriggerWebhook, TriggerManual, TriggerRedeploy
+	Trigger     string             // store.TriggerWebhook, TriggerManual, TriggerRedeploy, TriggerRollback
 	TriggeredBy int64              // user id; 0 for webhooks
 	Ref         string             // full ref: refs/heads/... or refs/tags/...
 	CommitSHA   string             // empty = whatever Ref points to at run time
 	Message     string
 	Author      string
+	// ReleaseID is the release a rollback switches to.
+	ReleaseID int64
 }
 
 var (
@@ -121,6 +123,9 @@ func (s *Service) Enqueue(ctx context.Context, req Request) (*store.Deployment, 
 	}
 	if req.TriggeredBy != 0 {
 		d.TriggeredBy = &req.TriggeredBy
+	}
+	if req.ReleaseID != 0 {
+		d.ReleaseID = &req.ReleaseID
 	}
 	if err := s.store.CreateDeployment(ctx, d); err != nil {
 		return nil, err
@@ -276,14 +281,16 @@ func (s *Service) execute(id int64) {
 		return
 	}
 
+	// A rollback switches to a release that is already built.
+	pulls := p.AutoPull && d.Trigger != store.TriggerRollback
 	sink, err := newLogSink(s.projects.LogDir(p), id, p.ID, s.hub)
 	if err != nil {
 		slog.Error("open deployment log", "id", id, "err", err)
-		s.store.StartDeployment(context.Background(), id, "", p.AutoPull)
+		s.store.StartDeployment(context.Background(), id, "", pulls)
 		s.finish(id, store.DeployFailed, nil, "could not open the deployment log")
 		return
 	}
-	started, err := s.store.StartDeployment(ctx, id, sink.path, p.AutoPull)
+	started, err := s.store.StartDeployment(ctx, id, sink.path, pulls)
 	if err != nil || !started {
 		sink.close()
 		os.Remove(sink.path)

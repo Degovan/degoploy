@@ -1,12 +1,14 @@
 package project
 
 import (
+	"cmp"
 	"fmt"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 
+	"github.com/degovan/degoploy/internal/release"
 	"github.com/degovan/degoploy/internal/store"
 	"github.com/degovan/degoploy/internal/toolchain"
 )
@@ -35,6 +37,11 @@ type Input struct {
 	AutoPull     bool
 	TimeoutSec   int
 	Enabled      bool
+	// Releases deploys each run into a release folder of its own (package release).
+	Releases      bool
+	KeepReleases  int
+	SharedPaths   []string
+	AfterActivate string
 	// Runtimes holds runtime settings to change, by runtime name:
 	// toolchain.Auto, toolchain.Off or a version spec. Others keep theirs.
 	Runtimes map[string]string
@@ -53,6 +60,10 @@ var (
 const (
 	minTimeout = 10
 	maxTimeout = 24 * 60 * 60
+
+	maxKeepReleases  = 50
+	maxSharedPaths   = 50
+	maxAfterActivate = 64 << 10
 )
 
 func (in *Input) normalize() {
@@ -75,6 +86,23 @@ func (in *Input) normalize() {
 	}
 	if in.WorkDir != "" {
 		in.WorkDir = filepath.Clean(in.WorkDir)
+	}
+	if in.KeepReleases == 0 {
+		in.KeepReleases = store.DefaultKeepReleases
+	}
+	var shared []string
+	for _, p := range in.SharedPaths {
+		if strings.TrimSpace(p) == "" {
+			continue
+		}
+		if c := release.CleanShared(p); c == "" || !slices.Contains(shared, c) {
+			shared = append(shared, cmp.Or(c, p))
+		}
+	}
+	in.SharedPaths = shared
+	in.AfterActivate = strings.ReplaceAll(in.AfterActivate, "\r\n", "\n")
+	if strings.TrimSpace(in.AfterActivate) == "" {
+		in.AfterActivate = ""
 	}
 	if in.ScriptSource == store.ScriptManaged {
 		in.ScriptPath = ""
@@ -114,6 +142,32 @@ func (in *Input) validate(dataDir, projectsDir string, creating bool) error {
 		}
 	default:
 		return invalid("script_source", "must be managed or repo")
+	}
+
+	if in.Releases && !in.AutoPull {
+		return invalid("auto_pull", "must be enabled for releases: each release is a fresh checkout")
+	}
+	if in.KeepReleases < 1 || in.KeepReleases > maxKeepReleases {
+		return invalid("keep_releases", "must be between 1 and %d", maxKeepReleases)
+	}
+	if len(in.SharedPaths) > maxSharedPaths {
+		return invalid("shared_paths", "at most %d paths", maxSharedPaths)
+	}
+	for _, p := range in.SharedPaths {
+		if release.CleanShared(p) != p {
+			return invalid("shared_paths", "%q must be a path inside the repository, such as .env or storage/", p)
+		}
+	}
+	for i, p := range in.SharedPaths {
+		for _, q := range in.SharedPaths[i+1:] {
+			a, b := strings.TrimSuffix(p, "/"), strings.TrimSuffix(q, "/")
+			if strings.HasPrefix(b+"/", a+"/") || strings.HasPrefix(a+"/", b+"/") {
+				return invalid("shared_paths", "%s and %s overlap; share only one of them", p, q)
+			}
+		}
+	}
+	if len(in.AfterActivate) > maxAfterActivate {
+		return invalid("after_activate", "must be at most 64 KiB")
 	}
 
 	for name, spec := range in.Runtimes {

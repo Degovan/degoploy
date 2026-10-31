@@ -29,7 +29,7 @@ type Manager struct {
 
 	// CheckAccess checks that deployments may clone into a work_dir, as the
 	// user they run as; nil checks as this process's user.
-	CheckAccess func(ctx context.Context, dir string) error
+	CheckAccess func(ctx context.Context, dir string, releases bool) error
 }
 
 // NewManager manages projects with their data in dataDir. Projects without a
@@ -64,6 +64,7 @@ func InputFrom(p *store.Project) Input {
 		Name: p.Name, Slug: p.Slug, Provider: p.Provider, RepoURL: p.RepoURL, WorkDir: p.WorkDir,
 		ScriptSource: p.ScriptSource, ScriptPath: p.ScriptPath, AutoPull: p.AutoPull,
 		TimeoutSec: p.TimeoutSec, Enabled: p.Enabled,
+		Releases: p.Releases, KeepReleases: p.KeepReleases, SharedPaths: p.SharedPaths, AfterActivate: p.AfterActivate,
 	}
 }
 
@@ -77,7 +78,7 @@ func (m *Manager) Create(ctx context.Context, in Input, userID int64) (*store.Pr
 		return nil, err
 	}
 	if in.AutoPull {
-		if err := m.checkAccess(ctx, in.WorkDir); err != nil {
+		if err := m.checkAccess(ctx, in.WorkDir, in.Releases); err != nil {
 			return nil, err
 		}
 	}
@@ -158,10 +159,11 @@ func (m *Manager) Update(ctx context.Context, p *store.Project, in Input, userID
 			return err
 		}
 	}
-	// Only a new folder, or pulling newly turned on: a project whose folder
-	// broke later can still be edited, and its deployments say what is wrong.
-	if in.AutoPull && (in.WorkDir != p.WorkDir || !p.AutoPull) {
-		if err := m.checkAccess(ctx, in.WorkDir); err != nil {
+	// Only a new folder, pulling newly turned on or another layout: a project
+	// whose folder broke later can still be edited, and its deployments say
+	// what is wrong.
+	if in.AutoPull && (in.WorkDir != p.WorkDir || !p.AutoPull || in.Releases != p.Releases) {
+		if err := m.checkAccess(ctx, in.WorkDir, in.Releases); err != nil {
 			return err
 		}
 	}
@@ -222,11 +224,11 @@ func (m *Manager) TestConnection(ctx context.Context, p *store.Project) ([]gitop
 	return gitops.LsRemote(ctx, m.GitEnv(p), p.RepoURL)
 }
 
-func (m *Manager) checkAccess(ctx context.Context, dir string) error {
+func (m *Manager) checkAccess(ctx context.Context, dir string, releases bool) error {
 	if m.CheckAccess == nil {
-		return CheckWorkDirAccess(dir)
+		return CheckWorkDirAccess(dir, releases)
 	}
-	return m.CheckAccess(ctx, dir)
+	return m.CheckAccess(ctx, dir, releases)
 }
 
 // defaultWorkDir puts a project without a working directory in projects_dir.
@@ -263,6 +265,10 @@ func apply(p *store.Project, in Input) {
 	p.AutoPull = in.AutoPull
 	p.TimeoutSec = in.TimeoutSec
 	p.Enabled = in.Enabled
+	p.Releases = in.Releases
+	p.KeepReleases = in.KeepReleases
+	p.SharedPaths = in.SharedPaths
+	p.AfterActivate = in.AfterActivate
 }
 
 // saveRuntimes stores the runtime settings in carries.

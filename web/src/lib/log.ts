@@ -164,7 +164,10 @@ function headerStep(text: string): StageKey | null {
 	if (!text.startsWith('==> ')) return null;
 	if (text.startsWith('==> Deployment #')) return 'trigger';
 	if (text.startsWith('==> Updating repository')) return 'update';
+	if (text.startsWith('==> Checking out release ')) return 'update';
 	if (text.startsWith('==> Running ')) return 'script';
+	// With releases the switch belongs to the script's step, and is all a rollback runs.
+	if (text.startsWith('==> Switching current ')) return 'script';
 	return null;
 }
 
@@ -213,7 +216,8 @@ export class LogParser {
 		const { line, state } = this.#line(bytes, offset, this.#state);
 		this.#state = state;
 		const key = headerStep(line.text);
-		if (key) this.steps.push({ key, lines: [] });
+		// A step's later headers (after-activate commands) stay in it.
+		if (key && key !== this.steps.at(-1)?.key) this.steps.push({ key, lines: [] });
 		else if (!this.steps.length) this.steps.push({ key: 'trigger', lines: [] });
 		this.steps[this.steps.length - 1].lines.push(line);
 	}

@@ -163,6 +163,10 @@ Jika indikator di pojok kanan atas UI tetap "Reconnecting…", WebSocket belum d
    file hasil deploy bisa ditulis grup itu (umask service `0002`), jadi `storage/` atau `cache/` aplikasi
    tidak perlu di-`chown` lagi. Arahkan web server ke `/srv/degoploy/<slug>` (misalnya `…/public`).
 
+   Dengan *Releases* menyala, tiap deployment dibangun di `releases/<id>` dan `current` baru dipindah
+   ke sana setelah script sukses; arahkan web server ke `/srv/degoploy/<slug>/current` (misalnya
+   `…/current/public`). Lihat [Releases and rollback](guide/releases.md).
+
    Folder lain, misalnya `/var/www/my-app` atau di home user, tetap boleh. git dan script berjalan
    sebagai `degoploy-deploy`, jadi user itu harus bisa menulis di sana, dan `degoploy` harus bisa
    membacanya (ia membaca `.nvmrc`, `composer.json` dan script dari repo). Saat project disimpan, degoploy

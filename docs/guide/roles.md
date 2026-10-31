@@ -16,7 +16,7 @@ Admins can compare the roles and see their members under **Roles** in the header
 | **Projects & deployments** | | | |
 | See projects and deployment history | ✓ | ✓ | ✓ |
 | Read build logs | ✓ | ✓ | ✓ |
-| Deploy manually, cancel and redeploy | ✓ | ✓ | – |
+| Deploy manually, cancel, redeploy and roll back | ✓ | ✓ | – |
 | **Configuration** | | | |
 | Create and delete projects | ✓ | – | – |
 | Edit trigger rules, deploy scripts and project settings | ✓ | – | – |

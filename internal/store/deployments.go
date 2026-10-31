@@ -19,6 +19,8 @@ const (
 	TriggerWebhook  = "webhook"
 	TriggerManual   = "manual"
 	TriggerRedeploy = "redeploy"
+	// TriggerRollback makes a release that is still on the server current again.
+	TriggerRollback = "rollback"
 )
 
 type Deployment struct {
@@ -46,19 +48,23 @@ type Deployment struct {
 	// ScriptRevisionID is the managed script revision the run executed; nil for
 	// repository scripts and runs that never reached the script.
 	ScriptRevisionID *int64
+	// ReleaseID is the release the run built (its own id) or, for a rollback,
+	// switched to; nil when the project deploys in place.
+	ReleaseID *int64
 }
 
 const deploymentCols = `id, project_id, rule_id, trigger, triggered_by, ref, commit_sha, commit_message,
 	author, status, exit_code, log_path, queued_at, started_at, script_started_at, finished_at, error, auto_pull,
-	script_revision_id`
+	script_revision_id, release_id`
 
 func scanDeployment(row interface{ Scan(...any) error }) (*Deployment, error) {
 	var d Deployment
-	var rule, by, exit, rev sql.NullInt64
+	var rule, by, exit, rev, release sql.NullInt64
 	var started, scriptStarted, finished sql.NullTime
 	var autoPull sql.NullBool
 	err := row.Scan(&d.ID, &d.ProjectID, &rule, &d.Trigger, &by, &d.Ref, &d.CommitSHA, &d.CommitMessage,
-		&d.Author, &d.Status, &exit, &d.LogPath, &d.QueuedAt, &started, &scriptStarted, &finished, &d.Error, &autoPull, &rev)
+		&d.Author, &d.Status, &exit, &d.LogPath, &d.QueuedAt, &started, &scriptStarted, &finished, &d.Error, &autoPull, &rev,
+		&release)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -90,6 +96,9 @@ func scanDeployment(row interface{ Scan(...any) error }) (*Deployment, error) {
 	if rev.Valid {
 		d.ScriptRevisionID = &rev.Int64
 	}
+	if release.Valid {
+		d.ReleaseID = &release.Int64
+	}
 	return &d, nil
 }
 
@@ -99,10 +108,11 @@ func (s *Store) CreateDeployment(ctx context.Context, d *Deployment) error {
 		d.Status = DeployQueued
 	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO deployments
-		(project_id, rule_id, trigger, triggered_by, ref, commit_sha, commit_message, author, status, log_path, queued_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(project_id, rule_id, trigger, triggered_by, ref, commit_sha, commit_message, author, status, log_path, queued_at,
+		 release_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		d.ProjectID, d.RuleID, d.Trigger, d.TriggeredBy, d.Ref, d.CommitSHA, d.CommitMessage, d.Author,
-		d.Status, d.LogPath, d.QueuedAt)
+		d.Status, d.LogPath, d.QueuedAt, d.ReleaseID)
 	if err != nil {
 		return err
 	}
@@ -123,7 +133,7 @@ type DeploymentView struct {
 
 const deploymentViewCols = `d.id, d.project_id, d.rule_id, d.trigger, d.triggered_by, d.ref, d.commit_sha,
 	d.commit_message, d.author, d.status, d.exit_code, d.log_path, d.queued_at, d.started_at, d.script_started_at,
-	d.finished_at, d.error, d.auto_pull, d.script_revision_id, COALESCE(r.name, ''), COALESCE(u.username, '')`
+	d.finished_at, d.error, d.auto_pull, d.script_revision_id, d.release_id, COALESCE(r.name, ''), COALESCE(u.username, '')`
 
 const deploymentViewFrom = ` FROM deployments d
 	LEFT JOIN trigger_rules r ON r.id = d.rule_id
@@ -131,12 +141,12 @@ const deploymentViewFrom = ` FROM deployments d
 
 func scanDeploymentView(row interface{ Scan(...any) error }) (*DeploymentView, error) {
 	var v DeploymentView
-	var rule, by, exit, rev sql.NullInt64
+	var rule, by, exit, rev, release sql.NullInt64
 	var started, scriptStarted, finished sql.NullTime
 	var autoPull sql.NullBool
 	err := row.Scan(&v.ID, &v.ProjectID, &rule, &v.Trigger, &by, &v.Ref, &v.CommitSHA, &v.CommitMessage,
 		&v.Author, &v.Status, &exit, &v.LogPath, &v.QueuedAt, &started, &scriptStarted, &finished, &v.Error,
-		&autoPull, &rev, &v.RuleName, &v.TriggeredByName)
+		&autoPull, &rev, &release, &v.RuleName, &v.TriggeredByName)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -167,6 +177,9 @@ func scanDeploymentView(row interface{ Scan(...any) error }) (*DeploymentView, e
 	}
 	if rev.Valid {
 		v.ScriptRevisionID = &rev.Int64
+	}
+	if release.Valid {
+		v.ReleaseID = &release.Int64
 	}
 	return &v, nil
 }
@@ -328,6 +341,12 @@ func (s *Store) CloseQueuedDeployment(ctx context.Context, id int64, status stri
 	}
 	n, _ := res.RowsAffected()
 	return n == 1, nil
+}
+
+// SetDeploymentRelease records the release a deployment builds.
+func (s *Store) SetDeploymentRelease(ctx context.Context, id, release int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE deployments SET release_id = ? WHERE id = ?`, release, id)
+	return err
 }
 
 func (s *Store) SetDeploymentCommit(ctx context.Context, id int64, sha, message, author string) error {

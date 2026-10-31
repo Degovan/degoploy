@@ -59,6 +59,15 @@ type Project struct {
 	AutoPull     bool   `json:"auto_pull"`
 	TimeoutSec   int    `json:"timeout_sec"`
 	Enabled      bool   `json:"enabled"`
+	// Releases: each deployment builds in releases/<id> under work_dir and
+	// work_dir/current switches to it when the script succeeds.
+	Releases     bool     `json:"releases"`
+	KeepReleases int      `json:"keep_releases"`
+	SharedPaths  []string `json:"shared_paths"`
+	// AfterActivate runs in work_dir/current after every switch, including rollbacks.
+	AfterActivate string `json:"after_activate"`
+	// LiveRelease is the release current points at; null without releases or before the first.
+	LiveRelease *int64 `json:"live_release" tstype:"number | null,required"`
 	// Runtimes holds the project's setting for each runtime, in display order.
 	Runtimes  []ProjectRuntime `json:"runtimes"`
 	CreatedAt string           `json:"created_at"`
@@ -86,6 +95,7 @@ type CreateProjectRequest struct {
 	AutoPull     bool   `json:"auto_pull"`
 	TimeoutSec   int    `json:"timeout_sec"`
 	Enabled      bool   `json:"enabled"`
+	Releases     bool   `json:"releases"`
 	// DefaultBranch, when set, creates a first trigger rule deploying pushes to it.
 	DefaultBranch string `json:"default_branch"`
 }
@@ -246,6 +256,18 @@ type Deployment struct {
 	// ScriptRevisionID: the managed script revision the run executed; null for
 	// repository scripts, runs that never reached the script and older deployments.
 	ScriptRevisionID *int64 `json:"script_revision_id" tstype:"number | null,required"`
+	// ReleaseID is the release the run built (its own id) or, for a rollback,
+	// switched to; null for projects that deploy in place.
+	ReleaseID *int64 `json:"release_id" tstype:"number | null,required"`
+}
+
+// Release is a build kept in the project's releases folder.
+type Release struct {
+	// ID is the deployment that built it.
+	ID   int64 `json:"id"`
+	Live bool  `json:"live"`
+	// Deployment that built it; null once that deployment was pruned from the history.
+	Deployment *Deployment `json:"deployment" tstype:"Deployment | null,required"`
 }
 
 // DeploymentNeighbors are the ids of the same project's previous and next deployments.
@@ -423,15 +445,19 @@ type AuditSummary struct {
 
 // UpdateProjectRequest is a partial update; omitted fields keep their value.
 type UpdateProjectRequest struct {
-	Name         *string `json:"name,omitempty"`
-	Provider     *string `json:"provider,omitempty" tstype:"Provider"`
-	RepoURL      *string `json:"repo_url,omitempty"`
-	WorkDir      *string `json:"work_dir,omitempty"`
-	ScriptSource *string `json:"script_source,omitempty" tstype:"ScriptSource"`
-	ScriptPath   *string `json:"script_path,omitempty"`
-	AutoPull     *bool   `json:"auto_pull,omitempty"`
-	TimeoutSec   *int    `json:"timeout_sec,omitempty"`
-	Enabled      *bool   `json:"enabled,omitempty"`
+	Name          *string   `json:"name,omitempty"`
+	Provider      *string   `json:"provider,omitempty" tstype:"Provider"`
+	RepoURL       *string   `json:"repo_url,omitempty"`
+	WorkDir       *string   `json:"work_dir,omitempty"`
+	ScriptSource  *string   `json:"script_source,omitempty" tstype:"ScriptSource"`
+	ScriptPath    *string   `json:"script_path,omitempty"`
+	AutoPull      *bool     `json:"auto_pull,omitempty"`
+	TimeoutSec    *int      `json:"timeout_sec,omitempty"`
+	Enabled       *bool     `json:"enabled,omitempty"`
+	Releases      *bool     `json:"releases,omitempty"`
+	KeepReleases  *int      `json:"keep_releases,omitempty"`
+	SharedPaths   *[]string `json:"shared_paths,omitempty"`
+	AfterActivate *string   `json:"after_activate,omitempty"`
 	// Runtimes changes the settings of the runtimes it names: "auto",
 	// "off" or a version spec.
 	Runtimes map[string]string `json:"runtimes,omitempty"`

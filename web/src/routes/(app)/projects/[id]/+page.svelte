@@ -2,12 +2,13 @@
 	import { createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { toast } from 'svelte-sonner';
 	import { errorMessage } from '#lib/api/client.js';
-	import { deploymentKeys, deploymentsApi } from '#lib/api/deployments.js';
+	import { deploymentKeys, deploymentsApi, isActive } from '#lib/api/deployments.js';
 	import { projectKeys, projectsApi } from '#lib/api/projects.js';
 	import { ruleKeys, rulesApi } from '#lib/api/rules.js';
 	import DeployKeyCard from '#lib/components/deploy-key-card.svelte';
 	import LatestDeployment from '#lib/components/latest-deployment.svelte';
 	import ProjectSummaryCard from '#lib/components/project-summary-card.svelte';
+	import ReleasesCard from '#lib/components/releases-card.svelte';
 	import SectionHeading from '#lib/components/section-heading.svelte';
 	import StageView from '#lib/components/stage-view.svelte';
 	import WebhookCard from '#lib/components/webhook-card.svelte';
@@ -87,6 +88,10 @@
 	{:else}
 		<LatestDeployment project={p} deployment={list[0]!} />
 		<StageView project={p} deployments={list.slice(0, 10)} />
+	{/if}
+
+	{#if p.releases}
+		<ReleasesCard project={p} active={list.find(isActive) ?? null} />
 	{/if}
 
 	<section class="flex flex-col gap-4" aria-labelledby="repository-connection">

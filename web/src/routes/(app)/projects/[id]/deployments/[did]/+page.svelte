@@ -9,7 +9,8 @@
 		deploymentKeys,
 		deploymentsApi,
 		isActive,
-		shortRef
+		shortRef,
+		triggerLabels
 	} from '#lib/api/deployments.js';
 	import { projectKeys, projectsApi } from '#lib/api/projects.js';
 	import type { Deployment, Project } from '#lib/api/types.gen.js';
@@ -100,7 +101,7 @@
 
 	function triggerText(d: Deployment) {
 		if (d.trigger === 'webhook') return d.author ? `Push by ${d.author}` : 'Webhook push';
-		return `${d.trigger === 'manual' ? 'Manual' : 'Redeploy'} by ${d.triggered_by || 'unknown'}`;
+		return `${triggerLabels[d.trigger]} by ${d.triggered_by || 'unknown'}`;
 	}
 
 	type Meta = { icon: Component; text: string; title?: string };
@@ -181,6 +182,7 @@
 	{@const links = providerLinks(p.provider, p.repo_url)}
 	{@const sha = d.commit_sha.slice(0, 7)}
 	{@const nav = neighbors.data}
+	{@const dir = d.release_id !== null ? `${p.work_dir}/releases/${d.release_id}` : p.work_dir}
 
 	<section class="border-b">
 		<div
@@ -351,7 +353,7 @@
 						<dd class="truncate">
 							{d.trigger === 'webhook'
 								? 'Webhook · push'
-								: `${d.trigger === 'manual' ? 'Manual' : 'Redeploy'} · ${d.triggered_by || 'unknown'}`}
+								: `${triggerLabels[d.trigger]} · ${d.triggered_by || 'unknown'}`}
 						</dd>
 						<dt class="text-muted-foreground">Rule</dt>
 						<dd class="truncate">{d.rule_name || '—'}</dd>
@@ -386,8 +388,20 @@
 								<span class="text-muted-foreground">Managed script</span>
 							{/if}
 						</dd>
+						{#if d.release_id !== null}
+							<dt class="text-muted-foreground">Release</dt>
+							<dd class="flex items-center gap-2">
+								#{d.release_id}
+								{#if p.live_release === d.release_id}
+									<span
+										class="rounded-full bg-emerald-500/15 px-1.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400"
+										>Live</span
+									>
+								{/if}
+							</dd>
+						{/if}
 						<dt class="text-muted-foreground">Working dir</dt>
-						<dd class="truncate font-mono" title={p.work_dir}>{p.work_dir}</dd>
+						<dd class="truncate font-mono" title={dir}>{dir}</dd>
 					</dl>
 				</section>
 

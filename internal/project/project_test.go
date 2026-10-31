@@ -205,22 +205,34 @@ func TestWorkDirAccess(t *testing.T) {
 	os.WriteFile(file, nil, 0o644)
 	os.MkdirAll(filepath.Join(git, ".git"), 0o755)
 
+	releases := filepath.Join(root, "releases")
+	os.MkdirAll(filepath.Join(releases, "releases", "3"), 0o755)
+	os.Symlink("releases/3", filepath.Join(releases, "current"))
+
 	cases := []struct {
-		dir  string
-		want string // part of the message; empty means accepted
+		dir      string
+		releases bool
+		want     string // part of the message; empty means accepted
 	}{
-		{filepath.Join(root, "new", "app"), ""},
-		{empty, ""},
-		{git, ""},
-		{filepath.Join(locked, "app"), "sudo install -d"},
-		{filepath.Join(closed, "app"), "setfacl -m"},
-		{locked, "setfacl -R"},
-		{notGit, "not a git repository"},
-		{file, "is a file"},
-		{filepath.Join(file, "app"), "is a file"},
+		{filepath.Join(root, "new", "app"), false, ""},
+		{empty, false, ""},
+		{git, false, ""},
+		{filepath.Join(locked, "app"), false, "sudo install -d"},
+		{filepath.Join(closed, "app"), false, "setfacl -m"},
+		{locked, false, "setfacl -R"},
+		{notGit, false, "not a git repository"},
+		{file, false, "is a file"},
+		{filepath.Join(file, "app"), false, "is a file"},
+		{releases, false, "holds releases"},
+
+		{filepath.Join(root, "new", "site"), true, ""},
+		{empty, true, ""},
+		{releases, true, ""},
+		{git, true, "deployed in place"},
+		{notGit, true, "not releases"},
 	}
 	for _, c := range cases {
-		err := CheckWorkDirAccess(c.dir)
+		err := CheckWorkDirAccess(c.dir, c.releases)
 		var ve *ValidationError
 		switch {
 		case c.want == "" && err != nil:

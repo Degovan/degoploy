@@ -152,6 +152,15 @@ export function describe(e: AuditEntry, names: Map<string, string>): AuditSenten
 				link: project ? { project, deployment: str(d.deployment) } : undefined,
 				meta: [`as #${str(d.deployment)}`]
 			};
+		case 'deployment.rollback':
+			return {
+				actor,
+				verb: 'rolled back',
+				target: `${slug} to release #${str(d.release)}`,
+				mono: true,
+				link: project ? { project, deployment: str(d.deployment) } : undefined,
+				meta: [`as #${str(d.deployment)}`]
+			};
 		case 'deployment.cancel':
 			return {
 				actor,

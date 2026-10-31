@@ -43,8 +43,8 @@ func New(cfg *config.Config, st *store.Store, box *secrets.Box, version string) 
 	hub := realtime.NewHub()
 	projects := project.NewManager(st, cfg.DataDir, cfg.ProjectsDir)
 	runner := &runas.Runner{User: cfg.DeployUser}
-	projects.CheckAccess = func(ctx context.Context, dir string) error {
-		msg, err := runner.CheckWorkDir(ctx, dir)
+	projects.CheckAccess = func(ctx context.Context, dir string, releases bool) error {
+		msg, err := runner.CheckWorkDir(ctx, dir, releases)
 		if err != nil {
 			return err
 		}

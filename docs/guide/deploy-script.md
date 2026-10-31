@@ -1,6 +1,6 @@
 ---
 title: Deploy script
-updated: 2026-10-29
+updated: 2026-10-30
 ---
 
 # Deploy script
@@ -48,14 +48,16 @@ degoploy sets these on every run. Click a name in the app to copy it.
 | `DEPLOY_PROJECT` | Project slug |
 | `DEPLOY_PROJECT_NAME` | Project name |
 | `DEPLOY_RULE` | Name of the matched trigger rule |
-| `DEPLOY_TRIGGER` | `webhook`, `manual` or `redeploy` |
+| `DEPLOY_TRIGGER` | `webhook`, `manual`, `redeploy` or `rollback` |
 | `DEPLOY_REF` | Full git ref, such as `refs/heads/main` |
 | `DEPLOY_BRANCH` | Branch name, empty for tags |
 | `DEPLOY_TAG` | Tag name, empty for branches |
 | `DEPLOY_COMMIT` | Full commit SHA |
 | `DEPLOY_AUTHOR` | Commit author |
-| `DEPLOY_WORKDIR` | Working directory |
+| `DEPLOY_WORKDIR` | The folder the script runs in: the working directory, or with [releases](releases.md) the release being built |
 | `GIT_SSH_COMMAND` | Makes `git` in the script use the project's deploy key, lent through an SSH agent for the length of the deployment |
+
+Projects with [releases](releases.md) also get `DEPLOY_RELEASE`, `DEPLOY_RELEASE_DIR`, `DEPLOY_SHARED_DIR` and `DEPLOY_CURRENT_DIR`.
 
 Your project's [variables](variables-and-secrets.md) and the rule's **Extra environment** are available too.
 

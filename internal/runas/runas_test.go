@@ -108,10 +108,10 @@ func TestCheckWorkDir(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "index.php"), nil, 0o644)
 	r := &Runner{}
-	if msg, err := r.CheckWorkDir(context.Background(), dir); err != nil || !strings.Contains(msg, "not a git repository") {
+	if msg, err := r.CheckWorkDir(context.Background(), dir, false); err != nil || !strings.Contains(msg, "not a git repository") {
 		t.Fatalf("msg = %q, %v", msg, err)
 	}
-	if msg, err := r.CheckWorkDir(context.Background(), filepath.Join(dir, "app")); err != nil || msg != "" {
+	if msg, err := r.CheckWorkDir(context.Background(), filepath.Join(dir, "app"), false); err != nil || msg != "" {
 		t.Fatalf("new folder: %q, %v", msg, err)
 	}
 }

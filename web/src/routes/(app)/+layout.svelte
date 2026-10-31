@@ -36,6 +36,8 @@
 						queryKey: projectKeys.detail(d.project_id),
 						exact: true
 					});
+					// So does the live release.
+					queryClient.invalidateQueries({ queryKey: projectKeys.releases(d.project_id) });
 				}
 			} else if (m.type === 'webhook.received' && pid) {
 				queryClient.invalidateQueries({ queryKey: ruleKeys.events(pid) });

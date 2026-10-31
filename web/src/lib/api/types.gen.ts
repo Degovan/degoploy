@@ -4,7 +4,7 @@ export type Provider = 'github' | 'gitea';
 export type ScriptSource = 'managed' | 'repo';
 export type TriggerEvent = 'push' | 'tag';
 export type AuditDetail = Record<string, unknown>;
-export type DeployTrigger = 'webhook' | 'manual' | 'redeploy';
+export type DeployTrigger = 'webhook' | 'manual' | 'redeploy' | 'rollback';
 export type DeliveryStatus = 'pong' | 'queued' | 'skipped' | 'ignored' | 'rejected';
 export type DeployStatus =
 	'queued' | 'running' | 'success' | 'failed' | 'canceled' | 'timeout' | 'skipped';
@@ -77,6 +77,21 @@ export interface Project {
 	timeout_sec: number /* int */;
 	enabled: boolean;
 	/**
+	 * Releases: each deployment builds in releases/<id> under work_dir and
+	 * work_dir/current switches to it when the script succeeds.
+	 */
+	releases: boolean;
+	keep_releases: number /* int */;
+	shared_paths: string[];
+	/**
+	 * AfterActivate runs in work_dir/current after every switch, including rollbacks.
+	 */
+	after_activate: string;
+	/**
+	 * LiveRelease is the release current points at; null without releases or before the first.
+	 */
+	live_release: number | null;
+	/**
 	 * Runtimes holds the project's setting for each runtime, in display order.
 	 */
 	runtimes: ProjectRuntime[];
@@ -109,6 +124,7 @@ export interface CreateProjectRequest {
 	auto_pull: boolean;
 	timeout_sec: number /* int */;
 	enabled: boolean;
+	releases: boolean;
 	/**
 	 * DefaultBranch, when set, creates a first trigger rule deploying pushes to it.
 	 */
@@ -274,6 +290,25 @@ export interface Deployment {
 	 * repository scripts, runs that never reached the script and older deployments.
 	 */
 	script_revision_id: number | null;
+	/**
+	 * ReleaseID is the release the run built (its own id) or, for a rollback,
+	 * switched to; null for projects that deploy in place.
+	 */
+	release_id: number | null;
+}
+/**
+ * Release is a build kept in the project's releases folder.
+ */
+export interface Release {
+	/**
+	 * ID is the deployment that built it.
+	 */
+	id: number /* int64 */;
+	live: boolean;
+	/**
+	 * Deployment that built it; null once that deployment was pruned from the history.
+	 */
+	deployment: Deployment | null;
 }
 /**
  * DeploymentNeighbors are the ids of the same project's previous and next deployments.
@@ -484,6 +519,10 @@ export interface UpdateProjectRequest {
 	auto_pull?: boolean;
 	timeout_sec?: number /* int */;
 	enabled?: boolean;
+	releases?: boolean;
+	keep_releases?: number /* int */;
+	shared_paths?: string[];
+	after_activate?: string;
 	/**
 	 * Runtimes changes the settings of the runtimes it names: "auto",
 	 * "off" or a version spec.

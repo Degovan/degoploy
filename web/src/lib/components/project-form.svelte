@@ -15,6 +15,7 @@
 		auto_pull: true,
 		timeout_sec: 600,
 		enabled: true,
+		releases: false,
 		default_branch: 'main'
 	});
 
@@ -37,6 +38,7 @@
 		auto_pull: p.auto_pull,
 		timeout_sec: p.timeout_sec,
 		enabled: p.enabled,
+		releases: p.releases,
 		default_branch: ''
 	});
 </script>
@@ -94,15 +96,15 @@
 	// svelte-ignore state_referenced_locally
 	let advancedOpen = $state(mode === 'edit');
 
-	const scriptFields = ['script_source', 'script_path', 'auto_pull', 'timeout_sec'];
+	const scriptFields = ['script_source', 'script_path', 'auto_pull', 'releases', 'timeout_sec'];
 	const projectsDir = $derived(session.me?.projects_dir ?? '');
 
 	$effect(() => {
 		if (!slugTouched) v.slug = slugify(v.name);
 	});
 	$effect(() => {
-		// Repository scripts only exist after a pull.
-		if (v.script_source === 'repo') v.auto_pull = true;
+		// Repository scripts only exist after a pull, and each release is one.
+		if (v.script_source === 'repo' || v.releases) v.auto_pull = true;
 	});
 
 	async function submit(e: SubmitEvent) {
@@ -361,10 +363,23 @@
 							<Switch
 								id="auto_pull"
 								bind:checked={v.auto_pull}
-								disabled={v.script_source === 'repo'}
+								disabled={v.script_source === 'repo' || v.releases}
 							/>
 						</div>
 						{@render fieldError('auto_pull')}
+
+						<div class="flex items-center justify-between gap-4">
+							<div class="flex flex-col gap-0.5">
+								<Label for="releases">Deploy in releases</Label>
+								<p class={hint}>
+									Each deployment builds in <code>releases/&lt;id&gt;</code> and
+									<code>current</code> switches to it when the script succeeds. Point the web server
+									at <code>current</code>.
+								</p>
+							</div>
+							<Switch id="releases" bind:checked={v.releases} />
+						</div>
+						{@render fieldError('releases')}
 
 						<div class="flex flex-col gap-2">
 							<Label for="timeout_sec">Timeout</Label>

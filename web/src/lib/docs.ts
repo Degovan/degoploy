@@ -21,6 +21,7 @@ export const docGroups: { title: string; icon: string; pages: string[] }[] = [
 			'variables-and-secrets',
 			'runtimes',
 			'deployments',
+			'releases',
 			'project-settings'
 		]
 	},

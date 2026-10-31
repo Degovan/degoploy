@@ -2,7 +2,10 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
+	"io/fs"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -226,5 +229,61 @@ func TestVariables(t *testing.T) {
 	}
 	if list, _ := s.ListVariables(ctx, p.ID); len(list) != 0 {
 		t.Fatalf("variables left after project delete: %+v", list)
+	}
+}
+
+// Migration 11 rebuilds the deployments table; webhook deliveries must keep
+// pointing at their deployments, and the foreign key must still work.
+func TestReleasesMigrationKeepsDeliveries(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "old.db")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)&_time_format=sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at DATETIME NOT NULL)`)
+	for v := 1; v <= 10; v++ {
+		matches, _ := fs.Glob(migrationsFS, fmt.Sprintf("migrations/%04d_*.sql", v))
+		body, _ := migrationsFS.ReadFile(matches[0])
+		if _, err := db.Exec(string(body)); err != nil {
+			t.Fatalf("migration %d: %v", v, err)
+		}
+		db.Exec(`INSERT INTO schema_migrations VALUES (?, ?)`, v, now())
+	}
+	for _, q := range []string{
+		`INSERT INTO projects (id, public_id, slug, name, provider, repo_url, work_dir, webhook_secret, created_at, updated_at)
+			VALUES (1, 'p', 'app', 'App', 'github', 'git@x:y/z.git', '/srv/app', 's', '2026-01-01', '2026-01-01')`,
+		`INSERT INTO deployments (id, project_id, trigger, status, queued_at, auto_pull) VALUES (7, 1, 'webhook', 'success', '2026-01-01', 1)`,
+		`INSERT INTO webhook_events (id, project_id, provider, event, matched, deployment_id, received_at)
+			VALUES (3, 1, 'github', 'push', 1, 7, '2026-01-01')`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var link sql.NullInt64
+	s.db.QueryRow(`SELECT deployment_id FROM webhook_events WHERE id = 3`).Scan(&link)
+	if !link.Valid || link.Int64 != 7 {
+		t.Fatalf("delivery 3 points at %v, want deployment 7", link)
+	}
+	d, err := s.DeploymentByID(ctx, 7)
+	if err != nil || d.AutoPull == nil || !*d.AutoPull || d.ReleaseID != nil {
+		t.Fatalf("deployment 7: %+v %v", d, err)
+	}
+	rel := int64(7)
+	if err := s.CreateDeployment(ctx, &Deployment{ProjectID: 1, Trigger: TriggerRollback, ReleaseID: &rel}); err != nil {
+		t.Fatal(err)
+	}
+	s.db.Exec(`DELETE FROM deployments WHERE id = 7`)
+	s.db.QueryRow(`SELECT deployment_id FROM webhook_events WHERE id = 3`).Scan(&link)
+	if link.Valid {
+		t.Fatal("deleting the deployment must clear the delivery's link")
 	}
 }

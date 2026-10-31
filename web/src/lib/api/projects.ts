@@ -2,8 +2,10 @@ import { api } from './client.js';
 import type {
 	ConnectionTest,
 	CreateProjectRequest,
+	Deployment,
 	Project,
 	ProjectSecrets,
+	Release,
 	Script,
 	ScriptRevision,
 	UpdateProjectRequest
@@ -14,7 +16,8 @@ export const projectKeys = {
 	detail: (id: number) => ['projects', id] as const,
 	secrets: (id: number) => ['projects', id, 'secrets'] as const,
 	script: (id: number) => ['projects', id, 'script'] as const,
-	revisions: (id: number) => ['projects', id, 'script', 'revisions'] as const
+	revisions: (id: number) => ['projects', id, 'script', 'revisions'] as const,
+	releases: (id: number) => ['projects', id, 'releases'] as const
 };
 
 const base = (id: number) => `/projects/${id}`;
@@ -31,5 +34,9 @@ export const projectsApi = {
 	testConnection: (id: number) => api.post<ConnectionTest>(`${base(id)}/test-connection`),
 	script: (id: number) => api.get<Script>(`${base(id)}/script`),
 	saveScript: (id: number, content: string) => api.put<Script>(`${base(id)}/script`, { content }),
-	revisions: (id: number) => api.get<ScriptRevision[]>(`${base(id)}/script/revisions`)
+	revisions: (id: number) => api.get<ScriptRevision[]>(`${base(id)}/script/revisions`),
+	releases: (id: number) => api.get<Release[]>(`${base(id)}/releases`),
+	/** Queues a rollback deployment that makes release current again. */
+	activateRelease: (id: number, release: number) =>
+		api.post<Deployment>(`${base(id)}/releases/${release}/activate`)
 };

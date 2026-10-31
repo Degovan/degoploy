@@ -127,15 +127,20 @@
 				const by = d.author ? ` by ${d.author}` : '';
 				return `push to ${shortRef(d.ref) || 'unknown ref'}${by}`;
 			}
+			if (d.trigger === 'rollback')
+				return `switch to release #${d.release_id ?? '?'} requested by ${d.triggered_by || 'unknown'}`;
 			return `${d.trigger} deploy requested by ${d.triggered_by || 'unknown'}`;
 		}
 		if (s.key === 'update') {
-			if (s.state === 'skipped') return 'auto pull is off';
+			if (s.state === 'skipped')
+				return d.trigger === 'rollback' ? 'the release is already built' : 'auto pull is off';
 			const cmds = lines.filter((l) => l.text.startsWith('$ git ')).map((l) => l.text.slice(2));
 			return cmds.length ? cmds.join(' && ') : `update ${p.work_dir}`;
 		}
 		const header = lines[0]?.text;
-		return header?.startsWith('==> Running ') ? header.slice('==> Running '.length) : p.work_dir;
+		if (header?.startsWith('==> Running ')) return header.slice('==> Running '.length);
+		if (header?.startsWith('==> Switching ')) return header.slice('==> '.length);
+		return p.work_dir;
 	}
 
 	// When each stage started, for "Started … ago".
