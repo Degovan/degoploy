@@ -1,6 +1,6 @@
 ---
 title: Releases and rollback
-updated: 2026-10-30
+updated: 2026-10-31
 ---
 
 # Releases and rollback
@@ -26,17 +26,21 @@ The working directory holds the releases, not the code itself:
 ```mermaid
 flowchart LR
     U[Check out<br/>releases/42] --> L[Link shared files] --> S[Run the script<br/>in releases/42]
-    S -- success --> C[Switch current<br/>to 42] --> A[After-activate<br/>commands]
+    S -- success --> C[Switch current<br/>to 42] --> A[After-activate<br/>commands] --> H{Health check}
     S -- failure --> R[Remove releases/42<br/>current stays]
-    class C ok
-    class R bad
+    H -- answers --> OK[Live]
+    H -- no answer --> B[Switch back to 40<br/>remove releases/42]
+    class OK ok
+    class R,B bad
 ```
 
 1. degoploy checks out the pushed commit into `releases/<deployment number>`.
 2. Every **shared path** in the release becomes a link into `shared/`.
 3. The deploy script runs **in the release**, not in `current`.
 4. When the script succeeds, `current` switches to the new release in one step.
-5. The **after-activate commands** run, then releases beyond the number to keep are removed.
+5. The **after-activate commands** run.
+6. With a **health check** URL set, degoploy requests it until the app answers. If it does not, `current` switches back to the release that was live and the new one is removed.
+7. Releases beyond the number to keep are removed.
 
 If the script fails, times out or is canceled, the release is removed and `current` keeps pointing at the release that was live.
 
@@ -87,6 +91,26 @@ They get the same variables as the deploy script. If they fail, the deployment i
 
 > [!TIP]
 > Reload PHP-FPM after a switch: OPcache keeps serving the old release's files otherwise.
+
+## Health check
+
+A deploy script that succeeds can still leave a broken site: a missing `.env` value, a class that does not load, a PHP-FPM that serves the old code. Under **Health Check** in the project's **Settings**, give degoploy a URL of the app to request after each switch:
+
+```text
+https://shop.example.com/up
+```
+
+- degoploy requests it with `GET` every 2 seconds, after the after-activate commands, until it answers **2xx or 3xx**. Redirects are not followed: a redirect already means the app answers.
+- **Wait up to** (60 seconds by default, 5 to 600) is how long it keeps trying. Each request may take up to 10 seconds. It counts toward the deployment's timeout and must be shorter than it.
+- If the app never answers, the deployment is marked *Failed*, `current` switches back to the release that was live, the **after-activate commands** run there, and the new release is removed. The error says so, for example *health check failed: … still gave 500 Internal Server Error after 60s; rolled back to release 40*.
+- The log shows each different answer once, under the script's stage.
+
+Laravel answers on `/up` out of the box (Laravel 11 and later); any page that needs the database and the cache works as well.
+
+> [!NOTE]
+> The request comes from the degoploy server. A URL that only resolves inside a private network, or a certificate the server does not trust, fails the check.
+
+When there is nothing to switch back to, the failed release stays live and only the deployment fails: on the first release, or when a [rollback](#roll-back) itself fails its check. Without releases, a failed check also only marks the deployment *Failed*.
 
 ## Roll back
 

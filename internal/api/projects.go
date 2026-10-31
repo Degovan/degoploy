@@ -197,6 +197,8 @@ func (a *API) updateProject(w http.ResponseWriter, r *http.Request) {
 	setIf(&in.KeepReleases, req.KeepReleases)
 	setIf(&in.SharedPaths, req.SharedPaths)
 	setIf(&in.AfterActivate, req.AfterActivate)
+	setIf(&in.HealthURL, req.HealthURL)
+	setIf(&in.HealthTimeout, req.HealthTimeout)
 	in.Runtimes = req.Runtimes
 
 	before, err := a.projectDTO(r, p)
@@ -370,6 +372,7 @@ func toProject(p *store.Project) Project {
 		WorkDir: p.WorkDir, ScriptSource: p.ScriptSource, ScriptPath: p.ScriptPath,
 		AutoPull: p.AutoPull, TimeoutSec: p.TimeoutSec, Enabled: p.Enabled,
 		Releases: p.Releases, KeepReleases: p.KeepReleases, SharedPaths: p.SharedPaths, AfterActivate: p.AfterActivate,
+		HealthURL: p.HealthURL, HealthTimeout: p.HealthTimeout,
 		CreatedAt:   p.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:   p.UpdatedAt.UTC().Format(time.RFC3339),
 		Permissions: []string{},
@@ -424,6 +427,8 @@ func diffProjects(before, after Project) map[string][2]any {
 	add("keep_releases", before.KeepReleases, after.KeepReleases)
 	add("shared_paths", strings.Join(before.SharedPaths, " "), strings.Join(after.SharedPaths, " "))
 	add("after_activate", before.AfterActivate, after.AfterActivate)
+	add("health_url", before.HealthURL, after.HealthURL)
+	add("health_timeout", before.HealthTimeout, after.HealthTimeout)
 	for i, r := range after.Runtimes {
 		if i < len(before.Runtimes) && before.Runtimes[i].Name == r.Name {
 			add("runtimes."+r.Name, before.Runtimes[i].Spec, r.Spec)

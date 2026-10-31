@@ -57,6 +57,8 @@
 		/** One path per line. */
 		shared_paths: string;
 		after_activate: string;
+		health_url: string;
+		health_timeout: number;
 	};
 	type Field = keyof Draft;
 
@@ -73,7 +75,9 @@
 		releases: p.releases,
 		keep_releases: p.keep_releases,
 		shared_paths: p.shared_paths.join('\n'),
-		after_activate: p.after_activate
+		after_activate: p.after_activate,
+		health_url: p.health_url,
+		health_timeout: p.health_timeout
 	});
 
 	// Each card edits its own fields of the draft and saves only those.
@@ -98,7 +102,8 @@
 		workdir: ['work_dir'],
 		script: ['script_source', 'script_path', 'auto_pull'],
 		timeout: ['timeout_sec'],
-		releases: ['releases', 'keep_releases', 'shared_paths', 'after_activate']
+		releases: ['releases', 'keep_releases', 'shared_paths', 'after_activate'],
+		health: ['health_url', 'health_timeout']
 	} satisfies Record<string, Field[]>;
 	type Card = keyof typeof cards;
 
@@ -121,6 +126,7 @@
 		const body: Record<string, unknown> = {};
 		for (const f of fields) body[f] = draft[f];
 		if (card === 'timeout') body.timeout_sec = Number(draft.timeout_sec);
+		if (card === 'health') body.health_timeout = Number(draft.health_timeout);
 		if (card === 'releases') {
 			body.keep_releases = Number(draft.keep_releases);
 			body.shared_paths = draft.shared_paths
@@ -203,6 +209,7 @@
 		{ id: 'repository', label: 'Repository' },
 		{ id: 'deploy-script', label: 'Deploy Script' },
 		{ id: 'releases', label: 'Releases' },
+		{ id: 'health', label: 'Health Check' },
 		{ id: 'runtimes', label: 'Runtimes' },
 		...(canSecrets ? [{ id: 'deploy-key', label: 'Deploy Key & Webhook' }] : []),
 		{ id: 'danger-zone', label: 'Danger Zone' }
@@ -637,6 +644,69 @@
 							{@render fieldError('after_activate')}
 						</div>
 					{/if}
+				</SettingsCard>
+			</section>
+
+			<section id="health" class="scroll-mt-32" aria-label="Health check">
+				<SettingsCard
+					title="Health Check"
+					description="After each deployment, request a URL of the app until it answers. With releases, a release that does not answer is switched back to the one that was live."
+					dirty={dirty('health')}
+					saving={saving === 'health'}
+					error={cardError('health')}
+					onsave={() => save('health')}
+				>
+					{#snippet note()}
+						{#if !draft!.health_url.trim()}
+							Leave the URL empty to skip the check.
+						{:else if saved!.releases}
+							Runs after the switch and the after-activate commands.
+						{:else}
+							Deploying in place, a failed check only marks the deployment failed.
+						{/if}
+					{/snippet}
+					<div class="flex flex-col gap-2">
+						<Label for="set-health-url" class="text-[13px] text-muted-foreground">URL</Label>
+						<Input
+							id="set-health-url"
+							type="url"
+							bind:value={draft.health_url}
+							placeholder="https://shop.example.com/up"
+							spellcheck={false}
+							autocomplete="off"
+							class={cn(input, mono)}
+							aria-invalid={!!errors.health_url}
+						/>
+						<span class="text-[13px] text-muted-foreground/80">
+							Requested with GET from this server. Any 2xx or 3xx answer passes; redirects are not
+							followed.
+						</span>
+						{@render fieldError('health_url')}
+					</div>
+					<div class="flex flex-col gap-2">
+						<Label for="set-health-timeout" class="text-[13px] text-muted-foreground"
+							>Wait up to</Label
+						>
+						<div class="relative w-[200px]">
+							<Input
+								id="set-health-timeout"
+								type="number"
+								min={5}
+								max={600}
+								bind:value={draft.health_timeout}
+								class={cn(input, mono, 'pr-20')}
+								aria-invalid={!!errors.health_timeout}
+							/>
+							<span
+								class="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-[13px] text-muted-foreground/80"
+								>seconds</span
+							>
+						</div>
+						<span class="text-[13px] text-muted-foreground/80">
+							Asked every 2 seconds until then; it counts toward the deployment timeout.
+						</span>
+						{@render fieldError('health_timeout')}
+					</div>
 				</SettingsCard>
 			</section>
 

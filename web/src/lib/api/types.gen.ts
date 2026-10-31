@@ -106,6 +106,12 @@ export interface Project {
 	 */
 	after_activate: string;
 	/**
+	 * HealthURL, when set, must answer 2xx or 3xx within HealthTimeout seconds
+	 * after each deployment; with releases, current switches back otherwise.
+	 */
+	health_url: string;
+	health_timeout: number /* int */;
+	/**
 	 * LiveRelease is the release current points at; null without releases or before the first.
 	 */
 	live_release: number | null;
@@ -545,6 +551,8 @@ export interface UpdateProjectRequest {
 	keep_releases?: number /* int */;
 	shared_paths?: string[];
 	after_activate?: string;
+	health_url?: string;
+	health_timeout?: number /* int */;
 	/**
 	 * Runtimes changes the settings of the runtimes it names: "auto",
 	 * "off" or a version spec.

@@ -89,7 +89,12 @@ func (s *Service) run(ctx context.Context, d *store.Deployment, p *store.Project
 			return s.outcome(ctx, w, start, fmt.Errorf("working directory %s does not exist (auto pull is off)", p.WorkDir))
 		}
 	}
-	return s.outcome(ctx, w, start, s.runScript(ctx, job))
+	err = s.runScript(ctx, job)
+	if err == nil && p.HealthURL != "" {
+		// In place there is no earlier release to go back to; the check only reports.
+		err = s.checkHealth(ctx, job)
+	}
+	return s.outcome(ctx, w, start, err)
 }
 
 // job is what the steps of one deployment share.

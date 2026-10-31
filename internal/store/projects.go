@@ -32,20 +32,25 @@ type Project struct {
 	KeepReleases  int
 	SharedPaths   []string
 	AfterActivate string
+	// HealthURL, when set, must answer 2xx or 3xx within HealthTimeout seconds
+	// after a deployment; with releases, current switches back otherwise.
+	HealthURL     string
+	HealthTimeout int
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
 
 const projectCols = `id, public_id, slug, name, provider, repo_url, work_dir, script_source, script_path,
 	webhook_secret, auto_pull, timeout_sec, enabled, releases, keep_releases, shared_paths, after_activate,
-	created_at, updated_at`
+	health_url, health_timeout, created_at, updated_at`
 
 func scanProject(row interface{ Scan(...any) error }) (*Project, error) {
 	var p Project
 	var shared string
 	err := row.Scan(&p.ID, &p.PublicID, &p.Slug, &p.Name, &p.Provider, &p.RepoURL, &p.WorkDir,
 		&p.ScriptSource, &p.ScriptPath, &p.WebhookSecret, &p.AutoPull, &p.TimeoutSec, &p.Enabled,
-		&p.Releases, &p.KeepReleases, &shared, &p.AfterActivate, &p.CreatedAt, &p.UpdatedAt)
+		&p.Releases, &p.KeepReleases, &shared, &p.AfterActivate, &p.HealthURL, &p.HealthTimeout,
+		&p.CreatedAt, &p.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -67,14 +72,17 @@ func (s *Store) CreateProject(ctx context.Context, p *Project) error {
 	if p.KeepReleases == 0 {
 		p.KeepReleases = DefaultKeepReleases
 	}
+	if p.HealthTimeout == 0 {
+		p.HealthTimeout = DefaultHealthTimeout
+	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO projects
 		(public_id, slug, name, provider, repo_url, work_dir, script_source, script_path,
 		 webhook_secret, auto_pull, timeout_sec, enabled, releases, keep_releases, shared_paths, after_activate,
-		 created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 health_url, health_timeout, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.PublicID, p.Slug, p.Name, p.Provider, p.RepoURL, p.WorkDir, p.ScriptSource, p.ScriptPath,
 		p.WebhookSecret, p.AutoPull, p.TimeoutSec, p.Enabled, p.Releases, p.KeepReleases, sharedJSON(p),
-		p.AfterActivate, p.CreatedAt, p.UpdatedAt)
+		p.AfterActivate, p.HealthURL, p.HealthTimeout, p.CreatedAt, p.UpdatedAt)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return ErrDuplicate
@@ -91,11 +99,12 @@ func (s *Store) UpdateProject(ctx context.Context, p *Project) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE projects SET
 		name = ?, provider = ?, repo_url = ?, work_dir = ?, script_source = ?, script_path = ?,
 		webhook_secret = ?, auto_pull = ?, timeout_sec = ?, enabled = ?,
-		releases = ?, keep_releases = ?, shared_paths = ?, after_activate = ?, updated_at = ?
+		releases = ?, keep_releases = ?, shared_paths = ?, after_activate = ?,
+		health_url = ?, health_timeout = ?, updated_at = ?
 		WHERE id = ?`,
 		p.Name, p.Provider, p.RepoURL, p.WorkDir, p.ScriptSource, p.ScriptPath,
 		p.WebhookSecret, p.AutoPull, p.TimeoutSec, p.Enabled,
-		p.Releases, p.KeepReleases, sharedJSON(p), p.AfterActivate, p.UpdatedAt, p.ID)
+		p.Releases, p.KeepReleases, sharedJSON(p), p.AfterActivate, p.HealthURL, p.HealthTimeout, p.UpdatedAt, p.ID)
 	if err != nil {
 		return err
 	}
@@ -107,6 +116,9 @@ func (s *Store) UpdateProject(ctx context.Context, p *Project) error {
 
 // DefaultKeepReleases is how many releases a project keeps unless it says otherwise.
 const DefaultKeepReleases = 5
+
+// DefaultHealthTimeout is how many seconds a health check waits unless the project says otherwise.
+const DefaultHealthTimeout = 60
 
 func sharedJSON(p *Project) string {
 	if len(p.SharedPaths) == 0 {

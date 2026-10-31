@@ -110,36 +110,47 @@ func (s *Service) rollback(ctx context.Context, j *job) error {
 	return s.activate(ctx, j)
 }
 
-// activate points current at j.release, removes old releases and runs the
-// after-activate commands.
+// activate points current at j.release, runs the after-activate commands and
+// the health check, and removes old releases. A failed health check switches
+// back to the release that was live (see restore).
 func (s *Service) activate(ctx context.Context, j *job) error {
 	p, w := j.p, j.w
 	base := p.WorkDir
+	prev := release.Live(base)
 	step(w, "Switching current to release %d", j.release)
 	if err := s.releaseOp(ctx, j, release.Op{Action: release.OpActivate, Base: base, ID: j.release}); err != nil {
 		return err
 	}
 	note(w, "%s → %s", release.Current(base), j.dir)
 
-	// Old releases go even when the commands below fail: the switch is done.
-	pruneCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
-	if err := s.releaseOp(pruneCtx, j, release.Op{Action: release.OpPrune, Base: base, ID: j.release, Keep: p.KeepReleases}); err != nil {
-		note(w, "removing old releases: %v", err)
+	var err error
+	if p.AfterActivate != "" {
+		step(w, "Running the after-activate commands")
+		if err = s.bash(ctx, j, release.Current(base), "after-activate", p.AfterActivate); err != nil {
+			note(w, "release %d is live, but the after-activate commands failed", j.release)
+		}
 	}
-	if _, err := os.Stat(filepath.Join(release.Repo(base), "HEAD")); err == nil {
+	if err == nil && p.HealthURL != "" {
+		if err = s.checkHealth(ctx, j); err != nil && ctx.Err() == nil {
+			if rollsBack(j, prev) {
+				err = s.restore(ctx, j, prev, err)
+			} else {
+				note(w, "release %d stays live: there is no earlier release to switch back to", j.release)
+			}
+		}
+	}
+
+	// Old releases go even when the steps above failed: the switch is done.
+	// They go only now, so the release a failed check switches back to is still there.
+	pruneCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+	defer cancel()
+	if perr := s.releaseOp(pruneCtx, j, release.Op{Action: release.OpPrune, Base: base, ID: release.Live(base), Keep: p.KeepReleases}); perr != nil {
+		note(w, "removing old releases: %v", perr)
+	}
+	if _, serr := os.Stat(filepath.Join(release.Repo(base), "HEAD")); serr == nil {
 		s.gitOutput(pruneCtx, release.Repo(base), j.gitEnv, "worktree", "prune")
 	}
-	cancel()
-
-	if p.AfterActivate == "" {
-		return nil
-	}
-	step(w, "Running the after-activate commands")
-	if err := s.bash(ctx, j, release.Current(base), "after-activate", p.AfterActivate); err != nil {
-		note(w, "release %d is live, but the after-activate commands failed", j.release)
-		return err
-	}
-	return nil
+	return err
 }
 
 // discard removes a release whose deployment failed, so only releases that

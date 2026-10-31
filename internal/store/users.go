@@ -45,8 +45,8 @@ type User struct {
 	// SelectedProjects limits a deployer or viewer to the projects in
 	// project_members, with the role given there. Admins ignore it.
 	SelectedProjects bool
-	LastLoginAt        *time.Time
-	CreatedAt          time.Time
+	LastLoginAt      *time.Time
+	CreatedAt        time.Time
 }
 
 // ErrDuplicate is returned when a unique constraint is violated.

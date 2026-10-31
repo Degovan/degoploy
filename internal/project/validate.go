@@ -3,6 +3,7 @@ package project
 import (
 	"cmp"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -42,6 +43,9 @@ type Input struct {
 	KeepReleases  int
 	SharedPaths   []string
 	AfterActivate string
+	// HealthURL is checked after each deployment; see store.Project.
+	HealthURL     string
+	HealthTimeout int
 	// Runtimes holds runtime settings to change, by runtime name:
 	// toolchain.Auto, toolchain.Off or a version spec. Others keep theirs.
 	Runtimes map[string]string
@@ -64,6 +68,9 @@ const (
 	maxKeepReleases  = 50
 	maxSharedPaths   = 50
 	maxAfterActivate = 64 << 10
+
+	minHealthTimeout = 5
+	maxHealthTimeout = 600
 )
 
 func (in *Input) normalize() {
@@ -100,6 +107,10 @@ func (in *Input) normalize() {
 		}
 	}
 	in.SharedPaths = shared
+	in.HealthURL = strings.TrimSpace(in.HealthURL)
+	if in.HealthTimeout == 0 {
+		in.HealthTimeout = store.DefaultHealthTimeout
+	}
 	in.AfterActivate = strings.ReplaceAll(in.AfterActivate, "\r\n", "\n")
 	if strings.TrimSpace(in.AfterActivate) == "" {
 		in.AfterActivate = ""
@@ -168,6 +179,18 @@ func (in *Input) validate(dataDir, projectsDir string, creating bool) error {
 	}
 	if len(in.AfterActivate) > maxAfterActivate {
 		return invalid("after_activate", "must be at most 64 KiB")
+	}
+	if in.HealthURL != "" {
+		u, err := url.Parse(in.HealthURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || len(in.HealthURL) > 2048 {
+			return invalid("health_url", "must be an http:// or https:// URL, such as https://shop.example.com/up")
+		}
+	}
+	if in.HealthTimeout < minHealthTimeout || in.HealthTimeout > maxHealthTimeout {
+		return invalid("health_timeout", "must be between %d and %d seconds", minHealthTimeout, maxHealthTimeout)
+	}
+	if in.HealthURL != "" && in.HealthTimeout >= in.TimeoutSec {
+		return invalid("health_timeout", "must be shorter than the deployment timeout (%d seconds)", in.TimeoutSec)
 	}
 
 	for name, spec := range in.Runtimes {

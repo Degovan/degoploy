@@ -1,7 +1,7 @@
 ---
 title: Project settings
 admin: true
-updated: 2026-10-30
+updated: 2026-10-31
 ---
 
 # Project settings
@@ -42,6 +42,10 @@ Build each deployment in a folder of its own and switch `current` to it when the
 - **Releases to keep**: counting the live one, between 1 and 50.
 - **Shared paths**: files and folders (ending in `/`) every release links to, such as `.env` and `storage/`.
 - **After-activate commands**: run in `current` after every switch, rollbacks included.
+
+## Health check
+
+A URL degoploy requests after each deployment until it answers 2xx or 3xx, such as `https://shop.example.com/up`. Leave it empty to skip the check. With releases, a release that does not answer within **Wait up to** seconds is switched back to the one that was live. See [Health check](releases.md#health-check).
 
 ## Deploy key and webhook
 

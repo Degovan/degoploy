@@ -78,6 +78,10 @@ type Project struct {
 	SharedPaths  []string `json:"shared_paths"`
 	// AfterActivate runs in work_dir/current after every switch, including rollbacks.
 	AfterActivate string `json:"after_activate"`
+	// HealthURL, when set, must answer 2xx or 3xx within HealthTimeout seconds
+	// after each deployment; with releases, current switches back otherwise.
+	HealthURL     string `json:"health_url"`
+	HealthTimeout int    `json:"health_timeout"`
 	// LiveRelease is the release current points at; null without releases or before the first.
 	LiveRelease *int64 `json:"live_release" tstype:"number | null,required"`
 	// Runtimes holds the project's setting for each runtime, in display order.
@@ -472,6 +476,8 @@ type UpdateProjectRequest struct {
 	KeepReleases  *int      `json:"keep_releases,omitempty"`
 	SharedPaths   *[]string `json:"shared_paths,omitempty"`
 	AfterActivate *string   `json:"after_activate,omitempty"`
+	HealthURL     *string   `json:"health_url,omitempty"`
+	HealthTimeout *int      `json:"health_timeout,omitempty"`
 	// Runtimes changes the settings of the runtimes it names: "auto",
 	// "off" or a version spec.
 	Runtimes map[string]string `json:"runtimes,omitempty"`
@@ -485,7 +491,7 @@ type UpdateUserRequest struct {
 	Disabled    *bool   `json:"disabled,omitempty"`
 	// SelectedProjects limits a deployer or viewer to Projects, which replaces
 	// their memberships. Admins always see every project.
-	SelectedProjects *bool          `json:"selected_projects,omitempty"`
+	SelectedProjects *bool           `json:"selected_projects,omitempty"`
 	Projects         []ProjectAccess `json:"projects,omitempty"`
 }
 

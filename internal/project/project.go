@@ -65,6 +65,7 @@ func InputFrom(p *store.Project) Input {
 		ScriptSource: p.ScriptSource, ScriptPath: p.ScriptPath, AutoPull: p.AutoPull,
 		TimeoutSec: p.TimeoutSec, Enabled: p.Enabled,
 		Releases: p.Releases, KeepReleases: p.KeepReleases, SharedPaths: p.SharedPaths, AfterActivate: p.AfterActivate,
+		HealthURL: p.HealthURL, HealthTimeout: p.HealthTimeout,
 	}
 }
 
@@ -269,6 +270,8 @@ func apply(p *store.Project, in Input) {
 	p.KeepReleases = in.KeepReleases
 	p.SharedPaths = in.SharedPaths
 	p.AfterActivate = in.AfterActivate
+	p.HealthURL = in.HealthURL
+	p.HealthTimeout = in.HealthTimeout
 }
 
 // saveRuntimes stores the runtime settings in carries.

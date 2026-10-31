@@ -66,6 +66,13 @@ func TestValidate(t *testing.T) {
 		{"repo path escapes", func(in *Input) { in.ScriptSource, in.ScriptPath = store.ScriptRepo, "../x.sh" }, "script_path"},
 		{"repo path absolute", func(in *Input) { in.ScriptSource, in.ScriptPath = store.ScriptRepo, "/bin/sh" }, "script_path"},
 		{"timeout", func(in *Input) { in.TimeoutSec = 1 }, "timeout_sec"},
+		{"health url", func(in *Input) { in.HealthURL = " https://shop.example.com/up " }, ""},
+		{"health url scheme", func(in *Input) { in.HealthURL = "ftp://shop.example.com/" }, "health_url"},
+		{"health url host", func(in *Input) { in.HealthURL = "http:///up" }, "health_url"},
+		{"health timeout", func(in *Input) { in.HealthTimeout = 1 }, "health_timeout"},
+		{"health outlasts the deployment", func(in *Input) {
+			in.HealthURL, in.HealthTimeout, in.TimeoutSec = "http://127.0.0.1/up", 120, 60
+		}, "health_timeout"},
 	}
 	for _, c := range cases {
 		in := validInput("/srv/app")

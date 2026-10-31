@@ -37,7 +37,7 @@ flowchart LR
 
 - **Trigger**: the deployment is accepted and prepared.
 - **Update repo**: the repository in the working directory is cloned the first time, or updated to the pushed commit.
-- **Script**: the deploy script runs. With [releases](releases.md), `current` then switches to the new release.
+- **Script**: the deploy script runs. With [releases](releases.md), `current` then switches to the new release. A [health check](releases.md#health-check), when set, runs at the end of this stage.
 
 A rollback skips the first two: its last stage, **Switch release**, points `current` at the release.
 
